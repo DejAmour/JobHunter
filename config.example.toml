@@ -1,0 +1,35 @@
+# Copy to ~/.jobhunter/config.toml and fill in.
+# The SMTP password is never written here: set JOBHUNTER_SMTP_PASSWORD.
+
+[profile]
+name = ""
+email = ""
+cv = ""            # absolute path to your CV as plain text, for coverage checks
+signature = """Jedda Someone
+https://example.com | github.com/example
+"""
+one_line = ""
+
+[candidate]
+# Every answer here changes a screening decision. Leave a value out if unknown,
+# and the screen will say "check" instead of guessing.
+needs_sponsorship = false
+right_to_work = true
+salary_floor = 60000
+currency = "GBP"
+remote_only = false
+years_experience = 5
+clearances = []
+
+[smtp]
+# Use your own domain, never a free mailbox, or the mail is more likely to be
+# filtered. 465 is implicit TLS; 587 with STARTTLS also works.
+host = ""
+port = 465
+user = ""
+from = ""
+
+[limits]
+# Deliberately small. Raise only after you have watched what comes back.
+per_domain_per_day = 2
+per_run = 20

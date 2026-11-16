@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}CV library | Jobhunter{% endblock %}
+{% block body %}
+
+<h1>CV library</h1>
+<div class="sub">Every CV is generated from <code>cv/content.toml</code>. Page count and parse score are re-read from the PDF, not remembered.</div>
+
+<div class="row" style="margin-bottom:14px">
+  <form method="post" action="{{ url_for('scan_cvs') }}">
+    <button type="submit">Rescan built PDFs</button>
+  </form>
+  <span class="small muted">Reads every PDF in the output folder and re-runs the ATS audit.</span>
+</div>
+
+{% if cvs %}
+<table>
+  <thead><tr><th>Variant</th><th>Market</th><th>Pages</th><th>Parse score</th><th>Built</th><th>Used by</th></tr></thead>
+  <tbody>
+  {% for row in cvs %}
+    <tr>
+      <td>{{ row['label'] }}</td>
+      <td><span class="pill stage">{{ row['market'] | upper }}</span></td>
+      <td class="num">{{ row['pages'] or '—' }}</td>
+      <td class="num">
+        {% if row['parse_score'] is not none %}
+          {{ row['parse_score'] }}/100
+          {% if row['parse_score'] < 85 %}<span class="pill ask">check</span>{% endif %}
+        {% else %}—{% endif %}
+      </td>
+      <td class="small muted">{{ row['built_at'][:10] }}</td>
+      <td class="num small">
+        {% set key = row['label'] ~ ' (' ~ row['market'] | upper ~ ')' %}
+        {{ used.get(key, 0) }}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <div class="panel empty">
+    Nothing scanned yet. Press “Rescan built PDFs”, or build first with
+    <code>python scripts/build_cv.py --all</code>.
+  </div>
+{% endif %}
+
+<h2>How the variants differ</h2>
+<div class="panel small">
+  <p><strong>Asset Management</strong> — fixed income and multi-asset portfolio management, fund and manager research, asset allocation, trade execution.</p>
+  <p><strong>Risk</strong> — risk and performance, risk modelling (MSc coursework and projects), portfolio and research.</p>
+  <p><strong>Credit Risk</strong> — fixed income and fund research, risk and quantitative. No issuer-level credit analysis is claimed.</p>
+  <p class="muted">UK versions carry no work-rights line. Australian versions say “eligible for Australian citizenship by descent”.</p>
+</div>
+
+{% endblock %}

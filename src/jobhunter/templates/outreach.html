@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Outreach | Jobhunter{% endblock %}
+{% block body %}
+
+<h1>Outreach</h1>
+<div class="sub">Drafts are free. Sending is not: the sender refuses an unverified address, caps messages per domain per day, and never attaches anything.</div>
+
+<h2>Today's real sends by domain</h2>
+<div class="panel">
+  {% if per_domain %}
+    {% for row in per_domain %}
+      <div class="row" style="justify-content: space-between">
+        <span class="small">{{ row['domain'] }}</span><span class="num small">{{ row['n'] }}</span>
+      </div>
+    {% endfor %}
+  {% else %}
+    <div class="empty small">Nothing sent today.</div>
+  {% endif %}
+</div>
+
+<h2>Messages</h2>
+{% if messages %}
+<table>
+  <thead><tr><th>To</th><th>Company</th><th>Subject</th><th>Status</th><th>Sent</th></tr></thead>
+  <tbody>
+  {% for row in messages %}
+    <tr>
+      <td class="small">{{ row['email'] or '—' }}</td>
+      <td class="small">{{ (row['company'] or '')[:24] }}</td>
+      <td class="small">{{ row['subject'][:48] }}</td>
+      <td>
+        {% if row['dry_run'] == 0 and row['status'] == 'sent' %}
+          <span class="pill apply">sent</span>
+        {% else %}
+          <span class="pill ask">{{ row['status'] }}</span>
+        {% endif %}
+      </td>
+      <td class="small muted">{{ row['sent_at'][:16].replace('T', ' ') }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <div class="panel empty">No messages yet. Draft one with <code>python -m jobhunter draft</code>.</div>
+{% endif %}
+
+<h2>Contacts</h2>
+{% if contacts %}
+<table>
+  <thead><tr><th>Email</th><th>Name</th><th>Company</th><th>Source</th><th>Verified</th></tr></thead>
+  <tbody>
+  {% for row in contacts %}
+    <tr>
+      <td class="small">{{ row['email'] }}</td>
+      <td class="small">{{ row['name'] or '—' }}</td>
+      <td class="small">{{ row['company'] or '—' }}</td>
+      <td class="small muted">{{ row['source'][:40] }}</td>
+      <td>{% if row['verified'] %}<span class="pill apply">verified</span>{% else %}<span class="pill exclude">unverified</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <div class="panel empty">No contacts stored.</div>
+{% endif %}
+
+{% endblock %}

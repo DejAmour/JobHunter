@@ -1,0 +1,49 @@
+# Credit risk variant. Same facts, framed for fixed income and credit research.
+#
+# What this file does NOT claim, on Jed's correction: no professional credit
+# analysis, no issuer-level credit work, no professional VaR measurement. Only
+# fixed income *fund* research was done professionally, and the research covered
+# all fund types rather than fixed income alone. The quantitative risk material
+# is MSc coursework and the hackathon risk engine.
+base = "../content.toml"
+label = "Credit Risk"
+
+summary = """
+Investment analyst with three years' experience in fund and investment research, including fixed income
+fund research, within a c.£80m, 16-portfolio service of three strategies and seven risk profiles. Assessed
+funds and managers across asset classes to support portfolio selection and asset allocation. MSc
+Mathematical Finance (Distinction), CISI Investment Advice Diploma and CFA IMC. Targeting fixed income
+research, credit research and credit risk roles.
+"""
+
+[[skills]]
+name = "Fixed income and fund research"
+items = [
+  "fixed income fund research",
+  "fund and manager research",
+  "fund ranking and comparison",
+  "fund selection across asset classes",
+  "asset allocation",
+  "valuation",
+]
+
+[[skills]]
+name = "Risk and quantitative"
+items = [
+  "portfolio stress testing",
+  "performance attribution",
+  "Value at Risk and Expected Shortfall",
+  "Monte Carlo simulation",
+  "factor models (Fama–French)",
+]
+
+[[skills]]
+name = "Data and tools"
+items = [
+  "Python",
+  "Excel and VBA",
+  "Morningstar Direct",
+  "Refinitiv",
+  "financial modelling",
+  "statistical analysis",
+]

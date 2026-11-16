@@ -1,0 +1,15 @@
+﻿Senior Platform Engineer (Payments)
+Acme Ltd, London (hybrid, 2 days in office)
+
+Salary: £72,000 - £88,000
+
+What you'll do
+- Own the payments API and its reliability
+- Build services in Python and Go
+
+What we need
+- You must have at least 5 years of professional software engineering experience
+- Strong experience with Python and distributed systems
+- Experience with PostgreSQL and Kafka
+- Proficiency with Kubernetes and Terraform
+- You must have the right to work in the UK; we are unable to offer visa sponsorship

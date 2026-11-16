@@ -1,0 +1,57 @@
+# Risk variant. Inherits every fact from the master; overrides only the framing.
+#
+# The rule for this file: nothing here may suggest professional risk-measurement
+# experience. Stress testing and attribution were part of the WHWM role. VaR,
+# Expected Shortfall, Monte Carlo and factor work came from MSc coursework, the
+# student investment fund and the hackathon, and the skills groups say so.
+base = "../content.toml"
+label = "Risk"
+
+summary = """
+Investment analyst with three years' experience in fund and investment research and multi-asset portfolio
+management. Researched funds across a c.£80m, 16-portfolio service of three strategies and seven risk
+profiles, covering asset allocation, portfolio stress testing and performance attribution. MSc
+Mathematical Finance (Distinction) with Stochastic Calculus and Probability Theory, and VaR and Expected
+Shortfall modelling built in coursework and a hackathon risk engine. Targeting investment risk, portfolio
+risk and risk analytics roles.
+"""
+
+[[skills]]
+name = "Risk and performance"
+items = [
+  "portfolio stress testing",
+  "performance attribution",
+  "risk profiling and portfolio suitability",
+  "risk and performance reporting",
+]
+
+[[skills]]
+name = "Risk modelling (MSc coursework and projects)"
+items = [
+  "Value at Risk",
+  "Expected Shortfall",
+  "Monte Carlo simulation",
+  "jump-diffusion models",
+  "factor exposure analysis",
+]
+
+[[skills]]
+name = "Portfolio and research"
+items = [
+  "multi-asset portfolio management",
+  "asset allocation",
+  "fund and manager research",
+  "valuation",
+  "trade execution",
+]
+
+[[skills]]
+name = "Data and tools"
+items = [
+  "Python",
+  "Excel and VBA",
+  "Morningstar Direct",
+  "Refinitiv",
+  "financial modelling",
+  "statistical analysis",
+]

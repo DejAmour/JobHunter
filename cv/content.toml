@@ -1,0 +1,129 @@
+# Single source of truth for the CV. Edit this, not the document.
+# Every bullet here traces to the 1026 CV. Nothing is invented; where a phrase
+# was added for keyword reasons it is marked with a comment.
+
+name = "Jed Dahlke"
+# Contact details live in cv/contact.toml, which is gitignored: a public
+# repository should not carry a phone number. Copy contact.example.toml and fill
+# it in; the build overlays it on top of this file.
+# Work rights are market-specific. A UK CV does not need to tell a UK recruiter
+# you can work in the UK, and an Australian CV should lead with Australian
+# entitlement instead. An empty string removes the line entirely.
+eligibility_uk = ""
+eligibility_au = ""
+
+summary = """
+Investment analyst with three years' experience in multi-asset portfolio management and fund and manager
+research across fixed income, equity and multi-asset funds. Supported a c.£80m model portfolio service of
+16 portfolios and presented recommendations to the monthly investment committee. MSc Mathematical
+Finance (Distinction), CISI IAD and CFA IMC. Targeting investment management and asset management roles.
+"""
+
+[sections]
+order = ["education", "qualifications", "experience", "skills", "other", "extracurricular"]
+
+[[education]]
+institution = "University of Exeter"
+place = "Exeter, England"
+award = "MSc Mathematical Finance — Distinction"
+dates = "Sept 2025 – Sept 2026"
+bullets = [
+  "Relevant modules: Derivatives Pricing, Option Pricing, Stochastic Calculus, Computation for Finance, Probability Theory, Portfolio Management, Statistics.",
+  "Dissertation: Monte Carlo variance reduction for arithmetic Asian option pricing. Compared conventional variance-reduction methods against neural-network-learned control variates, evaluating statistical efficiency, computational cost and reuse across contracts.",
+]
+note = "No undergraduate degree: MSc admission granted on the basis of professional qualifications and work experience."
+
+[[qualifications]]
+items = [
+  "CISI Investment Advice Diploma: Securities",
+  "CFA Institute Investment Management Certificate (IMC)",
+]
+
+[[experience]]
+title = "Investment Analyst"
+employer = "William Highbourne Wealth Management"
+place = "Exeter, England"
+dates = "Jul 2022 – Dec 2024"
+bullets = [
+  "Supported the management of a c.£80m model portfolio service comprising 16 portfolios, three investment strategies and seven risk profiles.",
+  "Conducted fixed income, equity and multi-asset fund research, manager research, asset allocation, portfolio stress testing and performance attribution; presented recommendations at monthly investment committee meetings.",
+  "Executed trades across multiple platforms, implementing portfolio rebalances, fund switches and bespoke client instructions.",  # "executed trades" kept, "trade execution" added in Skills
+  "Built an Excel/VBA fund-ranking tool using Morningstar API data and weighted evaluation criteria, standardising fund comparisons and cutting manual analysis time by roughly 25%.",
+  "Assisted in the curation of 30+ bespoke high-net-worth portfolios, supporting recurring and ad-hoc client requests and explaining investment decisions in client meetings.",
+]
+
+[[experience]]
+title = "Finance Lead"
+employer = "InfraFund (FinTech startup)"
+place = "Remote, England"
+dates = "Feb 2025 – Sept 2025"
+bullets = [
+  "Built multi-scenario financial models, valuation analysis, cap-table scenarios and investor return cases for a pre-seed capital raise.",
+  "Prepared and presented investor materials to founders, investors and accelerator panels; InfraFund placed in the top 15 of 120 companies at the Soonami Venturethon and secured $125k in matched funding.",
+]
+
+[[skills]]
+name = "Investment"
+items = [
+  "multi-asset portfolio management",
+  "fixed income fund research",
+  "asset allocation",
+  "portfolio construction and rebalancing",
+  "manager research",
+  "portfolio risk and stress testing",
+  "performance attribution",
+  "trade execution",
+  "valuation",
+  "client reporting and communication",
+  "high-net-worth (HNW) portfolios",
+]
+
+[[skills]]
+name = "Markets and quantitative"
+items = [
+  "equities",
+  "derivatives and options pricing",
+  "Monte Carlo simulation",
+  "Value at Risk and Expected Shortfall",
+  "factor models (Fama–French regressions)",
+]
+
+[[skills]]
+name = "Data and tools"
+items = [
+  "Python",
+  "Excel and VBA",
+  "Morningstar Direct",
+  "Refinitiv",
+  "financial modelling",
+  "statistical analysis",
+]
+
+[[other]]
+title = "Quantitative Analyst — UoE Student Investment Fund"
+place = "Exeter, England"
+dates = "Nov 2025 – Mar 2026"
+bullets = [
+  "Applied Fama–French factor regressions to defence equities, estimating factor exposures and ranking stocks by historical alpha to support research and stock shortlisting.",
+]
+
+[[other]]
+title = "Trader and 1st Place Winner (field of c.250)"
+place = "OSTC / Zishi Institutional Options Market-Making Competition"
+dates = "Apr 2026"
+bullets = [
+  "Won a university-wide, week-long market-making simulation, pricing multi-leg strategies while managing delta, gamma and vega exposure under time pressure.",
+]
+
+[[other]]
+title = "Hackathon — 3rd Place of 17 Teams"
+place = "UoE Student Investment Fund"
+dates = "Jan 2025"
+bullets = [
+  "Built a Python risk engine for blockchain assets using jump-diffusion Monte Carlo simulation to estimate Value at Risk and Expected Shortfall.",
+]
+
+[extracurricular]
+bullets = [
+  "University 1st Team Basketball; former South West England and D2 National League player.",
+]

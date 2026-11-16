@@ -1,0 +1,2 @@
+﻿Senior backend engineer, 7 years. Python, Go, PostgreSQL, Kafka, Kubernetes,
+Terraform, distributed systems, payments API reliability.

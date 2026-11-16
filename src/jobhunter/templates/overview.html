@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Overview | Jobhunter{% endblock %}
+{% block body %}
+
+{% if counts.get('apply', 0) %}
+<p class="lede">
+  <em>{{ counts.get('apply', 0) }}</em> postings are worth applying to.
+  {% if stages.values() | sum %}<em>{{ stages.values() | sum }}</em> applications are being tracked.{% endif %}
+</p>
+{% else %}
+<p class="lede">
+  Nothing has cleared screening yet. <em>{{ counts.get('ask', 0) }}</em> postings are waiting on a human.
+</p>
+{% endif %}
+
+<div class="cards">
+  <div class="card">
+    <div class="k">Ready to apply</div>
+    <div class="v">{{ counts.get('apply', 0) }}</div>
+    <div class="n">cleared the knockouts</div>
+  </div>
+  <div class="card">
+    <div class="k">Needs a look</div>
+    <div class="v">{{ counts.get('ask', 0) }}</div>
+    <div class="n">short text, senior title or thin match</div>
+  </div>
+  <div class="card">
+    <div class="k">Out of scope</div>
+    <div class="v">{{ counts.get('exclude', 0) }}</div>
+    <div class="n">a blocker fired</div>
+  </div>
+  <div class="card">
+    <div class="k">Australia</div>
+    <div class="v">{{ by_country.get('au', 0) }}</div>
+    <div class="n">postings in scope</div>
+  </div>
+</div>
+
+<div class="grid2">
+  <div>
+    <h2>{% if best and best[0]['coverage'] is not none %}Strongest matches{% else %}Latest to apply to{% endif %}</h2>
+    <p class="small muted" style="margin:-4px 0 10px">
+      A dash means the listing text was too short to score, which is common for aggregator adverts.
+    </p>
+    {% if best %}
+      <table>
+        <thead><tr><th>Role</th><th>Company</th><th>Where</th><th>Match</th><th></th></tr></thead>
+        <tbody>
+        {% for row in best %}
+          <tr>
+            <td><a href="{{ url_for('job', job_id=row['id']) }}">{{ row['title'] | truncate(64, true) }}</a></td>
+            <td class="small">{{ row['company'] | truncate(24, true) }}</td>
+            <td class="small muted">{{ row['location'] | truncate(22, true) }}</td>
+            <td class="num small">
+              {% if row['coverage'] is not none %}
+                <span class="bar"><i style="width: {{ (row['coverage'] * 100) | round | int }}%"></i></span>
+                {{ (row['coverage'] * 100) | round | int }}%
+              {% else %}
+                <span class="faint">—</span>
+              {% endif %}
+            </td>
+            <td><span class="pill {{ row['decision'] }}">{{ row['decision'] }}</span></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="panel empty">Nothing scored yet. Run discovery.</div>
+    {% endif %}
+
+    <h2>Just found</h2>
+    {% if recent %}
+      <table>
+        <thead><tr><th>Role</th><th>Company</th><th>Market</th><th></th></tr></thead>
+        <tbody>
+        {% for row in recent %}
+          <tr>
+            <td><a href="{{ url_for('job', job_id=row['id']) }}">{{ row['title'] | truncate(62, true) }}</a></td>
+            <td class="small">{{ row['company'] | truncate(26, true) }}</td>
+            <td class="small muted">{{ row['country'] | upper }}</td>
+            <td><span class="pill {{ row['decision'] }}">{{ row['decision'] }}</span></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="panel empty">No postings yet.</div>
+    {% endif %}
+  </div>
+
+  <div>
+    <h2>Diary</h2>
+    <div class="panel">
+      <div class="small muted">Assessments</div>
+      {% if assessments %}
+        <ul class="timeline" style="margin-top:8px">
+        {% for item in assessments %}
+          <li>
+            <a href="{{ url_for('application', application_id=item['app_id']) }}">{{ item['company'] }}</a>, {{ item['kind'] }}
+            <div class="small muted">{{ item['due_at'] or 'no date' }}, {{ item['status'] }}</div>
+          </li>
+        {% endfor %}
+        </ul>
+      {% else %}
+        <div class="empty small">Nothing pending.</div>
+      {% endif %}
+    </div>
+    <div class="panel">
+      <div class="small muted">Interviews</div>
+      {% if interviews %}
+        <ul class="timeline" style="margin-top:8px">
+        {% for item in interviews %}
+          <li>
+            <a href="{{ url_for('application', application_id=item['app_id']) }}">{{ item['company'] }}</a>, {{ item['round'] }}
+            <div class="small muted">{{ item['scheduled_at'] or 'no date' }}, {{ item['mode'] or item['status'] }}</div>
+          </li>
+        {% endfor %}
+        </ul>
+      {% else %}
+        <div class="empty small">Nothing scheduled.</div>
+      {% endif %}
+    </div>
+
+    <h2>Applications</h2>
+    <div class="panel">
+      {% for stage in stages %}
+        {% if stages[stage] %}
+          <div class="row small" style="justify-content: space-between">
+            <span>{{ stage }}</span><span class="num">{{ stages[stage] }}</span>
+          </div>
+        {% endif %}
+      {% endfor %}
+      {% if not stages %}<div class="empty small">None started.</div>{% endif %}
+    </div>
+
+    <h2>By market</h2>
+    <div class="panel">
+      {% for country, n in by_country.items() %}
+        <div class="row small" style="justify-content: space-between">
+          <span>{{ 'United Kingdom' if country == 'uk' else 'Australia' if country == 'au' else country }}</span>
+          <span class="num">{{ n }}</span>
+        </div>
+      {% endfor %}
+      {% if not by_country %}<div class="empty small">Nothing discovered.</div>{% endif %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,381 @@
+# Employers whose own job boards can be read directly.
+#
+# Every entry here was checked by hand: the endpoint returned jobs. Add a firm by
+# running `python -m jobhunter probe --domain example.com`, which looks at the
+# firm's careers page, reads which applicant tracking system it uses, and prints
+# the entry to paste below.
+#
+# ats = greenhouse | lever | workable | ashby | workday | seek
+#
+# Workday needs three parts, all visible in the careers URL:
+#   https://{tenant}.{wd}.myworkdayjobs.com/{site}
+#
+# country is a hint only, used for grouping in the dashboard.
+
+# --- United Kingdom -------------------------------------------------------
+
+[[firms]]
+name = "Man Group"
+ats = "greenhouse"
+slug = "mangroup"
+country = "uk"
+
+[[firms]]
+name = "M&G"
+ats = "workday"
+tenant = "mgpru"
+wd = "wd3"
+site = "mandgprudential"
+country = "uk"
+
+[[firms]]
+name = "Quilter"
+ats = "workday"
+tenant = "quilter"
+wd = "wd3"
+site = "External-Career-Site"
+country = "uk"
+
+[[firms]]
+name = "abrdn"
+ats = "workday"
+tenant = "abrdn"
+wd = "wd3"
+site = "abrdn"
+country = "uk"
+
+[[firms]]
+name = "Aviva Investors"
+ats = "workday"
+tenant = "aviva"
+wd = "wd1"
+site = "Aviva_Investors_External"
+country = "uk"
+
+[[firms]]
+name = "Fidelity International"
+ats = "workday"
+tenant = "fil"
+wd = "wd3"
+site = "001"
+country = "uk"
+
+[[firms]]
+name = "Hargreaves Lansdown"
+ats = "workday"
+tenant = "hargreaveslansdown"
+wd = "wd3"
+site = "HargreavesLansdown"
+country = "uk"
+
+[[firms]]
+name = "Northern Trust"
+ats = "workday"
+tenant = "ntrs"
+wd = "wd1"
+site = "northerntrust"
+country = "uk"
+
+[[firms]]
+name = "Railpen"
+ats = "workday"
+tenant = "railpen"
+wd = "wd3"
+site = "Railpen"
+country = "uk"
+
+[[firms]]
+name = "State Street"
+ats = "workday"
+tenant = "statestreet"
+wd = "wd1"
+site = "Global"
+country = "uk"
+
+[[firms]]
+name = "T. Rowe Price"
+ats = "workday"
+tenant = "troweprice"
+wd = "wd5"
+site = "TRowePriceInternational"
+country = "uk"
+
+[[firms]]
+name = "Wellington Management"
+ats = "workday"
+tenant = "wellington"
+wd = "wd5"
+site = "external"
+country = "uk"
+
+[[firms]]
+name = "Interactive Investor"
+ats = "workable"
+slug = "interactive-investor"
+country = "uk"
+
+# --- Australia ------------------------------------------------------------
+
+[[firms]]
+name = "Future Fund"
+ats = "workday"
+tenant = "futurefund"
+wd = "wd105"
+site = "future_fund"
+country = "au"
+
+[[firms]]
+name = "SEEK (all Australian employers)"
+ats = "seek"
+where = "All Australia"
+pages = 2
+keywords = [
+  "investment analyst",
+  "junior investment analyst",
+  "portfolio analyst",
+  "investment risk analyst",
+  "fund research analyst",
+  "performance analyst",
+  "credit analyst",
+  "asset allocation",
+]
+country = "au"
+
+# --- Indeed, through a browser -------------------------------------------
+#
+# Off by default. Indeed answers 403 to plain HTTP and its publisher API is
+# closed, but a real Chromium window loads the results page — so this drives one
+# with Playwright. It is the only source here that reads a site which is actively
+# trying not to be read, and Indeed's terms prohibit automated collection.
+# Flip enabled to true if you want it; nothing else in the pipeline changes.
+#
+# Set headless = false to watch it work in a visible window.
+
+[[firms]]
+name = "Indeed UK"
+ats = "indeed"
+enabled = false
+country = "uk"
+where = "London"
+pages = 1
+fetch_details = false
+keywords = [
+  "investment analyst",
+  "portfolio analyst",
+  "investment risk analyst",
+  "fund research analyst",
+]
+
+[[firms]]
+name = "Indeed Australia"
+ats = "indeed"
+enabled = false
+country = "au"
+where = "All Australia"
+pages = 1
+fetch_details = false
+keywords = [
+  "investment analyst",
+  "portfolio analyst",
+  "investment risk analyst",
+]
+
+# --- JobSpy: Indeed, through a maintained library -------------------------
+#
+# github.com/speedyapply/JobSpy (MIT). This is the piece that reaches Indeed,
+# and it also resolves the employer's own URL behind the advert, so a role found
+# here and later seen on a Workday board is recognised as the same job.
+
+[[firms]]
+name = "JobSpy Indeed UK"
+ats = "jobspy"
+country = "uk"
+where = "London"
+results_wanted = 40
+keywords = [
+  "investment analyst",
+  "portfolio analyst",
+  "investment risk analyst",
+  "fund research analyst",
+  "performance analyst",
+]
+
+[[firms]]
+name = "JobSpy Indeed Australia"
+ats = "jobspy"
+country = "au"
+where = "Australia"
+results_wanted = 40
+keywords = [
+  "investment analyst",
+  "portfolio analyst",
+  "investment risk analyst",
+]
+
+# --- Aggregators ----------------------------------------------------------
+# Aggregators are worth having for breadth: they carry employers with no public
+# board and small firms that never appear on one. They are worse per posting
+# (stale copies, recruiters, duplicated adverts) which is why they are additive
+# to the boards above rather than a replacement.
+#
+# Adzuna and Reed both need a free API key. Without one the source reports
+# itself as unconfigured instead of quietly returning nothing.
+
+[[firms]]
+name = "Adzuna UK"
+ats = "adzuna"
+country = "uk"
+pages = 2
+keywords = [
+  "investment analyst",
+  "asset management graduate",
+  "portfolio analyst",
+  "investment risk analyst",
+  "fund research analyst",
+  "performance attribution analyst",
+  "credit analyst",
+]
+
+[[firms]]
+name = "Adzuna Australia"
+ats = "adzuna"
+country = "au"
+pages = 2
+keywords = [
+  "investment analyst",
+  "portfolio analyst",
+  "investment risk analyst",
+  "fund research analyst",
+  "credit analyst",
+]
+
+[[firms]]
+name = "Reed UK"
+ats = "reed"
+pages = 1
+keywords = [
+  "investment analyst",
+  "portfolio analyst",
+  "investment risk analyst",
+  "fund research",
+  "performance analyst",
+  "credit analyst",
+]
+
+# --- Data, index and research houses (adjacent roles) ---------------------
+
+[[firms]]
+name = "S&P Global"
+ats = "workday"
+tenant = "spgi"
+wd = "wd5"
+site = "SPGI_Careers"
+country = "uk"
+
+[[firms]]
+name = "Dimensional Fund Advisors"
+ats = "workday"
+tenant = "dimensional"
+wd = "wd5"
+site = "DFA_Careers"
+country = "uk"
+
+
+
+
+# --- added by probe ---
+
+
+
+[[firms]]
+
+name = "Citigroup"
+
+ats = "workday"
+
+tenant = "citi"
+
+wd = "wd5"
+
+site = "2"
+
+notes = "rate limited, board exists"
+
+
+
+[[firms]]
+
+name = "Evelyn Partners"
+
+ats = "smartrecruiters"
+
+slug = "EvelynPartners"
+
+
+
+[[firms]]
+
+name = "LSEG"
+
+ats = "workday"
+
+tenant = "lseg"
+
+wd = "wd3"
+
+site = "Careers"
+
+notes = "rate limited, board exists"
+
+
+
+[[firms]]
+
+name = "Prudential"
+
+ats = "workday"
+
+tenant = "prudential"
+
+wd = "wd3"
+
+site = "prudential"
+
+notes = "rate limited, board exists"
+
+
+
+[[firms]]
+
+name = "Perpetual"
+
+ats = "workday"
+
+tenant = "perpetual"
+
+wd = "wd3"
+
+site = "external"
+country = "au"
+
+notes = "rate limited, board exists"
+
+
+
+[[firms]]
+
+name = "Commonwealth Bank"
+
+ats = "workday"
+
+tenant = "cba"
+
+wd = "wd3"
+
+site = "CommBank_Careers"
+country = "au"
+
+notes = "rate limited, board exists"
+
+
+

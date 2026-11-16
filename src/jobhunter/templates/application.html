@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}{{ application['company'] }} | Jobhunter{% endblock %}
+{% block body %}
+
+<div class="row" style="justify-content: space-between; align-items: flex-start">
+  <div>
+    <h1>{{ application['title'] }}</h1>
+    <div class="sub">
+      {{ application['company'] }}, {{ application['location'] or '—' }}
+     , <span class="pill stage">{{ application['stage'] }}</span>
+     , <a href="{{ application['url'] }}" target="_blank" rel="noopener">posting</a>
+    </div>
+  </div>
+  <a class="small" href="{{ url_for('applications') }}">back</a>
+</div>
+
+<div class="grid2">
+  <div>
+    <h2>Stage</h2>
+    <form class="panel row" method="post" action="{{ url_for('set_stage', application_id=application['id']) }}">
+      <select name="stage">
+        {% for stage in stages %}
+          <option value="{{ stage }}" {{ 'selected' if application['stage'] == stage }}>{{ stage }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">Update</button>
+    </form>
+
+    <h2>Assessments</h2>
+    {% if assessments %}
+      <table>
+        <thead><tr><th>Type</th><th>Due</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {% for item in assessments %}
+          <tr>
+            <td class="small">{{ item['kind'] }}{% if item['note'] %}<div class="muted">{{ item['note'][:70] }}</div>{% endif %}</td>
+            <td class="small muted">{{ item['due_at'] or '—' }}</td>
+            <td><span class="pill stage">{{ item['status'] }}</span></td>
+            <td>
+              <form class="inline" method="post" action="{{ url_for('assessment_status', assessment_id=item['id']) }}">
+                <input type="hidden" name="status" value="{{ 'done' if item['status'] == 'pending' else 'pending' }}">
+                <button class="ghost small" type="submit">{{ 'mark done' if item['status'] == 'pending' else 'reopen' }}</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="panel empty small">No assessments recorded.</div>
+    {% endif %}
+
+    <form class="panel" method="post" action="{{ url_for('add_assessment', application_id=application['id']) }}">
+      <div class="row">
+        <input name="kind" placeholder="online test / video interview / case study" style="flex:1">
+        <input name="due_at" type="date">
+        <button type="submit" class="ghost">Add assessment</button>
+      </div>
+      <input name="note" placeholder="what it covers, time limit…" style="width:100%; margin-top:8px">
+    </form>
+
+    <h2>Interviews</h2>
+    {% if interviews %}
+      <table>
+        <thead><tr><th>Round</th><th>When</th><th>Format</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {% for item in interviews %}
+          <tr>
+            <td class="small">{{ item['round'] }}</td>
+            <td class="small muted">{{ item['scheduled_at'] or '—' }}</td>
+            <td class="small muted">{{ item['mode'] or '—' }}</td>
+            <td><span class="pill stage">{{ item['status'] }}</span></td>
+            <td>
+              <form class="inline" method="post" action="{{ url_for('interview_status', interview_id=item['id']) }}">
+                <input type="hidden" name="status" value="{{ 'done' if item['status'] == 'scheduled' else 'scheduled' }}">
+                <button class="ghost small" type="submit">{{ 'mark done' if item['status'] == 'scheduled' else 'reopen' }}</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="panel empty small">No interviews recorded.</div>
+    {% endif %}
+
+    <form class="panel" method="post" action="{{ url_for('add_interview', application_id=application['id']) }}">
+      <div class="row">
+        <select name="round">
+          <option value="first">first</option>
+          <option value="second">second</option>
+          <option value="final">final</option>
+          <option value="hr">HR</option>
+        </select>
+        <input name="scheduled_at" type="datetime-local">
+        <input name="mode" placeholder="video / phone / on-site" style="flex:1">
+        <button type="submit" class="ghost">Add interview</button>
+      </div>
+      <input name="note" placeholder="interviewer, topics…" style="width:100%; margin-top:8px">
+    </form>
+
+    <h2>Outreach linked here</h2>
+    {% if messages %}
+      <table>
+        <thead><tr><th>To</th><th>Subject</th><th>Status</th><th>Sent</th></tr></thead>
+        <tbody>
+        {% for item in messages %}
+          <tr>
+            <td class="small">{{ item['email'] or '—' }}</td>
+            <td class="small">{{ item['subject'][:50] }}</td>
+            <td><span class="pill {{ 'apply' if item['dry_run'] == 0 else 'ask' }}">{{ 'sent' if item['dry_run'] == 0 else 'dry run' }}</span></td>
+            <td class="small muted">{{ item['sent_at'][:10] }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="panel empty small">No messages linked to this application.</div>
+    {% endif %}
+  </div>
+
+  <div>
+    <h2>Details</h2>
+    <form class="panel" method="post" action="{{ url_for('set_details', application_id=application['id']) }}">
+      <div class="small muted">CV sent</div>
+      <select name="variant" style="width:100%; margin:4px 0 10px">
+        <option value="">default</option>
+        {% for variant in variants %}
+          <option value="{{ variant['label'] }} ({{ variant['market'] | upper }})"
+            {{ 'selected' if application['variant'] == variant['label'] ~ ' (' ~ variant['market'] | upper ~ ')' }}>
+            {{ variant['label'] }} — {{ variant['market'] | upper }}
+          </option>
+        {% endfor %}
+      </select>
+      <div class="small muted">Deadline</div>
+      <input name="deadline" type="date" value="{{ application['deadline'] or '' }}" style="width:100%; margin:4px 0 10px">
+      <div class="small muted">Notes</div>
+      <textarea name="note">{{ application['note'] }}</textarea>
+      <div class="row" style="margin-top:8px"><button type="submit" class="ghost">Save</button></div>
+    </form>
+
+    <h2>Screening</h2>
+    <div class="panel small">
+      <div class="kv">
+        <div class="k">Decision</div><div><span class="pill {{ application['decision'] }}">{{ application['decision'] }}</span></div>
+        <div class="k">Match</div>
+        <div>{% if application['coverage'] is not none %}{{ (application['coverage'] * 100) | round | int }}%{% else %}—{% endif %}</div>
+        <div class="k">Submitted</div><div>{{ application['submitted_at'][:10] }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

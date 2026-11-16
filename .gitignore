@@ -1,0 +1,36 @@
+# Generated CVs, previews and run logs.
+# The CV PDFs carry a name, phone number, email and address, so they are not
+# versioned. Rebuild them with scripts/build_cv.py --all; output/ is disposable.
+output/
+
+# The store, sessions and credentials never leave the machine.
+*.db
+*.db-wal
+*.db-shm
+sessions/
+.env
+
+# Python and tooling.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Editor noise.
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local overrides.
+config.toml
+domains.local.txt
+
+# Personal contact details used to render the CV (name, phone, email, address).
+# cv/contact.example.toml is the committed template.
+cv/contact.toml

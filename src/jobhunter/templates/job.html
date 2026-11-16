@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}{{ job['title'] }} | Jobhunter{% endblock %}
+{% block body %}
+
+<div class="row" style="justify-content: space-between; align-items: flex-start">
+  <div>
+    <h1>{{ job['title'] }}</h1>
+    <div class="sub">
+      <a href="{{ job['url'] }}" target="_blank" rel="noopener">{{ job['company'] }}</a>
+     , {{ job['location'] or 'location not stated' }}
+     , <span class="pill {{ job['decision'] }}">{{ job['decision'] }}</span>
+      {% if job['seniority'] %}<span class="pill stage">senior title</span>{% endif %}
+    </div>
+  </div>
+  <div class="row">
+    <form class="inline" method="post" action="{{ url_for('set_decision', job_id=job['id']) }}">
+      <input type="hidden" name="decision" value="apply">
+      <button type="submit" class="ghost">Mark apply</button>
+    </form>
+    <form class="inline" method="post" action="{{ url_for('set_decision', job_id=job['id']) }}">
+      <input type="hidden" name="decision" value="exclude">
+      <button type="submit" class="ghost">Exclude</button>
+    </form>
+    <a class="small" href="{{ url_for('jobs') }}">back to jobs</a>
+  </div>
+</div>
+
+<div class="grid2">
+  <div>
+    <div class="panel">
+      <div class="kv">
+        <div class="k">Source</div><div>{{ job['source'] }}</div>
+        <div class="k">Posted</div><div>{{ job['posted_at'] or '—' }}</div>
+        <div class="k">Discovered</div><div>{{ job['discovered_at'][:10] }}</div>
+        <div class="k">Country</div><div>{{ job['country'] | upper or '—' }}</div>
+        <div class="k">Match</div>
+        <div>
+          {% if job['coverage'] is not none %}
+            {{ (job['coverage'] * 100) | round | int }}% of extracted requirements
+          {% else %}<span class="muted">not scored — text too short</span>{% endif %}
+        </div>
+        {% if job['department'] %}<div class="k">Function</div><div>{{ job['department'] }}</div>{% endif %}
+      </div>
+      {% if job['notes'] %}<div class="small" style="margin-top:10px; color:#8a5a00">{{ job['notes'] }}</div>{% endif %}
+      {% if agency %}<div class="small muted" style="margin-top:8px">This looks like a recruitment agency, not the employer.</div>{% endif %}
+    </div>
+
+    {% if report %}
+    <h2>Why this scored what it did</h2>
+    <div class="panel">
+      <div class="kv">
+        <div class="k">Decision</div><div><span class="pill {{ report.decision }}">{{ report.decision }}</span></div>
+        <div class="k">Requirements</div>
+        <div>{{ report.requirements | length }} extracted from the posting{% if report.coverage is not none %}, {{ (report.coverage * 100) | round | int }}% evidenced by the CV{% endif %}</div>
+      </div>
+      {% if report.blockers or report.checks or report.flags %}
+        <div class="small muted" style="margin-top:12px">Knockouts</div>
+        <ul class="small" style="margin:4px 0 0 18px; padding:0">
+          {% for finding in report.blockers %}<li>blocker: {{ finding.name }}, {{ finding.evidence | truncate(110, true) }}</li>{% endfor %}
+          {% for finding in report.checks %}<li>needs an answer: {{ finding.name }}, {{ finding.evidence | truncate(110, true) }}</li>{% endfor %}
+          {% for finding in report.flags %}<li>flag: {{ finding.name }}, {{ finding.evidence | truncate(110, true) }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      {% if missing %}
+        <div class="small muted" style="margin-top:12px">Requirements the CV does not evidence</div>
+        <ul class="small" style="margin:4px 0 0 18px; padding:0">
+          {% for item in missing[:6] %}<li>{{ item | truncate(120, true) }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      <div class="small faint" style="margin-top:12px">Coverage is token overlap, a filter rather than a verdict.</div>
+    </div>
+    {% endif %}
+
+    <h2>Posting</h2>
+    {% if job['description'] %}
+      <pre class="body">{{ job['description'] }}</pre>
+    {% else %}
+      <div class="panel empty">No description stored. <a href="{{ job['url'] }}" target="_blank" rel="noopener">Open the posting</a>.</div>
+    {% endif %}
+  </div>
+
+  <div>
+    <h2>Application</h2>
+    {% if application %}
+      <div class="panel">
+        <div class="small">Already tracked as <span class="pill stage">{{ application['stage'] }}</span></div>
+        <div style="margin-top:8px"><a href="{{ url_for('application', application_id=application['id']) }}">Open the application</a></div>
+      </div>
+    {% else %}
+      <form class="panel" method="post" action="{{ url_for('create_application', job_id=job['id']) }}">
+        <div class="small muted" style="margin-bottom:8px">Start tracking this one. Pick the CV you would send.</div>
+        <div class="row" style="flex-direction: column; align-items: stretch">
+          <select name="variant">
+            <option value="">default CV</option>
+            {% for variant in variants %}
+              <option value="{{ variant['label'] }} ({{ variant['market'] | upper }})">
+                {{ variant['label'] }} — {{ variant['market'] | upper }}{% if variant['pages'] %}, {{ variant['pages'] }}p{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+          <select name="country">
+            <option value="{{ job['country'] }}">{{ job['country'] | upper }}</option>
+            <option value="uk">UK</option>
+            <option value="au">Australia</option>
+          </select>
+          <button type="submit">Track application</button>
+        </div>
+      </form>
+    {% endif %}
+
+    <h2>Notes</h2>
+    <form class="panel" method="post" action="{{ url_for('set_note', job_id=job['id']) }}">
+      <textarea name="notes" placeholder="Recruiter name, referral, why it fits…">{{ job['notes'] }}</textarea>
+      <div class="row" style="margin-top:8px"><button type="submit" class="ghost">Save note</button></div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Postings | Jobhunter{% endblock %}
+{% block body %}
+
+<h1>{{ total }} postings in scope</h1>
+<p class="sub">
+  Reading {{ first }}–{{ last }}. “Apply” means the knockouts passed and the CV says
+  something relevant; “ask” means a human should look before spending effort.
+</p>
+
+<form method="get" class="row" style="margin-bottom:18px">
+  <input type="search" name="q" value="{{ query }}" placeholder="title or company" style="min-width:230px">
+  <select name="decision">
+    <option value="">any decision</option>
+    {% for d in decisions %}<option value="{{ d }}" {{ 'selected' if decision == d }}>{{ d }}</option>{% endfor %}
+  </select>
+  <select name="country">
+    <option value="">both markets</option>
+    <option value="uk" {{ 'selected' if country == 'uk' }}>United Kingdom</option>
+    <option value="au" {{ 'selected' if country == 'au' }}>Australia</option>
+  </select>
+  <select name="senior">
+    <option value="">any level</option>
+    <option value="hide" {{ 'selected' if senior == 'hide' }}>hide senior titles</option>
+  </select>
+  <select name="agency">
+    <option value="">employers and agencies</option>
+    <option value="hide" {{ 'selected' if agency == 'hide' }}>direct employers only</option>
+  </select>
+  <button type="submit">Filter</button>
+  {% if query or decision or country or senior or agency %}<a class="small" href="{{ url_for('jobs') }}">clear</a>{% endif %}
+</form>
+
+{% if jobs %}
+<table>
+  <thead>
+    <tr><th>Role</th><th>Company</th><th>Where</th><th>Match</th><th>Decision</th></tr>
+  </thead>
+  <tbody>
+  {% for row in jobs %}
+    <tr>
+      <td>
+        <a href="{{ url_for('job', job_id=row['id']) }}">{{ row['title'] | truncate(68, true) }}</a>
+        {% if row['seniority'] %}<span class="small faint">senior</span>{% endif %}
+        {% if is_agency(row['company']) %}<span class="small faint">agency</span>{% endif %}
+        {% if row['id'] in applied %}<span class="pill stage">applied</span>{% endif %}
+      </td>
+      <td class="small">{{ row['company'] | truncate(26, true) }}</td>
+      <td class="small muted">{{ row['location'] | truncate(24, true) }}</td>
+      <td class="num small">
+        {% if row['coverage'] is not none %}
+          <span class="bar"><i style="width: {{ (row['coverage'] * 100) | round | int }}%"></i></span>
+          {{ (row['coverage'] * 100) | round | int }}%
+        {% else %}<span class="faint">—</span>{% endif %}
+      </td>
+      <td><span class="pill {{ row['decision'] }}">{{ row['decision'] }}</span></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if pages > 1 %}
+<div class="row" style="margin-top:16px">
+  {% if page > 1 %}
+    <a class="small" href="{{ url_for('jobs', q=query, decision=decision, country=country, senior=senior, page=page-1) }}">Previous</a>
+  {% endif %}
+  <span class="small faint">page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}
+    <a class="small" href="{{ url_for('jobs', q=query, decision=decision, country=country, senior=senior, page=page+1) }}">Next</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+  <div class="panel empty">Nothing matches. Run <code>python -m jobhunter discover</code>.</div>
+{% endif %}
+
+{% endblock %}

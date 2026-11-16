@@ -1,0 +1,14 @@
+# Copy this to contact.toml and fill in your own details.
+#
+# contact.toml is gitignored on purpose: a public repository should not carry a
+# phone number and a home address. cv/content.toml holds the work history;
+# this file holds only who you are and how to reach you.
+
+name = "Your Name"
+location = "City, Region"
+phone = "00000000000"
+email = "you@example.com"
+
+# Work rights, per market. Leave a line empty to omit it from that CV.
+eligibility_uk = ""
+eligibility_au = ""
