@@ -153,10 +153,9 @@ never in the database.
 
 The first slice, in order of value:
 
-- `apply --prepare` — choose the variant, write the answer sheet, open the
-  posting, record the intent. No form interaction, useful immediately.
-- Greenhouse and Lever forms — the two simplest ATSs, and the vendored fixtures
-  let every selector be tested without submitting anything.
+- ~~`apply --prepare`~~ — done: variant, answer sheet, evidence, gaps, intent.
+- ~~Greenhouse and Lever forms~~ — done, tested against the vendored fixtures,
+  stopping at the review screen.
 - Workday last, because account creation and multi-step wizards are where it
   breaks.
 

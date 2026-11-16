@@ -111,6 +111,33 @@ checklist in `output/applications/<company>-<role>/application.md`.
 
 Nothing is submitted and nothing is invented.
 
+## Filling the form
+
+```
+python -m jobhunter fill --job 2            # fills, screenshots, stops
+python -m jobhunter fill --job 2 --submit   # presses submit
+```
+
+Greenhouse and Lever are done. The filler opens the posting in a real browser,
+writes the values from `[answers]`, uploads the CV the pack chose, screenshots
+the result into the application folder, and stops at the review screen.
+
+Rules it will not break:
+
+- **The answer bank is the only source.** A posting cannot tell the filler what
+  to write.
+- **A field with no answer stays empty and is reported.** An empty required field
+  fails at the employer's own validation, which is the right place to fail.
+- **Submit is off** unless you pass `--submit`.
+
+Proved against the vendored fixtures, which are real Greenhouse and Lever
+markup loaded from disk, so the tests exercise the selectors without touching an
+employer:
+
+```
+python -m pytest tests/test_fill.py -q
+```
+
 ## LinkedIn and Indeed
 
 Indeed is read through **JobSpy** (`speedyapply/JobSpy`, MIT), used as a library:

@@ -126,6 +126,13 @@ def main(argv: list[str] | None = None) -> int:
     apply_parser.add_argument("--open", action="store_true", help="open the posting in your browser")
     apply_parser.add_argument("--no-record", action="store_true", help="write the pack but do not track it")
 
+    fill_parser = commands.add_parser("fill", help="fill an application form and stop before submitting")
+    fill_parser.add_argument("--job", type=int, required=True)
+    fill_parser.add_argument("--submit", action="store_true", help="press submit (default: stop for review)")
+    fill_parser.add_argument("--headless", action="store_true", help="do not show the browser window")
+    fill_parser.add_argument("--url", default="", help="override the posting URL (useful for fixtures)")
+    fill_parser.add_argument("--ats", default="", help="force a board type (greenhouse, lever) instead of detecting it")
+
     screen_parser = commands.add_parser("screen", help="screen a posting before applying")
     screen_parser.add_argument("--file", required=True, help="the posting text")
     screen_parser.add_argument("--cv", default=None, help="the CV text (default: profile.cv)")
@@ -282,6 +289,65 @@ def main(argv: list[str] | None = None) -> int:
             open_it=args.open,
         )
         return 0
+
+    if args.command == "fill":
+        from . import apply as apply_pack
+        from . import fill as form_fill
+
+        db.init(store)
+        root = Path(__file__).resolve().parents[2]
+        cv_path = config.get("profile", {}).get("cv", "")
+        cv_text = ""
+        if cv_path and Path(cv_path).is_file():
+            cv_text = cv.extract(Path(cv_path))[0] if Path(cv_path).suffix.lower() in {".pdf", ".docx"} else read(cv_path)
+
+        pack = apply_pack.build(
+            db.connect(store),
+            args.job,
+            config,
+            root=root,
+            cv_text=cv_text,
+        )
+        cv_file = root / "output" / pack.cv_path
+        values = form_fill.values_from(config, cv_path=str(cv_file), org=pack.job["company"], market=pack.market)
+        url = args.url or pack.job["url"]
+
+        print(f"{pack.job['title']} — {pack.job['company']}")
+        print(f"  cv:  {cv_file.name}{'' if cv_file.is_file() else '  (missing!)'}")
+        print(f"  url: {url}")
+        report = form_fill.run(
+            url,
+            values,
+            ats=args.ats,
+            submit=args.submit,
+            headless=args.headless,
+            screenshot_dir=root / "output" / "applications" / apply_pack._slug(
+                f"{pack.job['company']}-{pack.job['title']}"
+            ),
+        )
+        print()
+        print(report.summary())
+
+        # Record the attempt against the application, so the ledger says a form
+        # was filled even when nothing was sent.
+        with db.connect(store) as connection:
+            row = connection.execute(
+                "SELECT id, note FROM applications WHERE job_id = ? ORDER BY id DESC LIMIT 1",
+                (args.job,),
+            ).fetchone()
+            if row is not None:
+                stamp = db.now()[:16].replace("T", " ")
+                note = (row["note"] or "").strip()
+                entry = f"{stamp}: filled form ({report.ats}), submitted={bool(args.submit)}"
+                if report.screenshot:
+                    entry += f", screenshot {report.screenshot}"
+                connection.execute(
+                    "UPDATE applications SET note = ?, updated_at = ? WHERE id = ?",
+                    (f"{note}\n{entry}".strip(), db.now(), row["id"]),
+                )
+                if args.submit and report.submitted:
+                    db.set_application_stage(connection, int(row["id"]), "applied")
+        return 0 if not report.error else 1
 
     if args.command == "login":
         from . import sessions
