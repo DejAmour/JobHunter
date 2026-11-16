@@ -115,6 +115,17 @@ def main(argv: list[str] | None = None) -> int:
     login_parser = commands.add_parser("login", help="capture a signed-in browser session")
     login_parser.add_argument("--site", default="indeed", choices=("indeed", "linkedin"))
 
+    refresh_parser = commands.add_parser("refresh", help="read the full posting for rows that only stored a summary")
+    refresh_parser.add_argument("--limit", type=int, default=40)
+    refresh_parser.add_argument("--decision", default="apply", choices=("apply", "ask", "exclude", ""))
+    refresh_parser.add_argument("--country", default="", choices=("uk", "au", ""))
+    refresh_parser.add_argument("--dry-run", action="store_true")
+
+    apply_parser = commands.add_parser("apply", help="prepare an application pack for one posting")
+    apply_parser.add_argument("--job", type=int, required=True, help="job id from the dashboard or jobs list")
+    apply_parser.add_argument("--open", action="store_true", help="open the posting in your browser")
+    apply_parser.add_argument("--no-record", action="store_true", help="write the pack but do not track it")
+
     screen_parser = commands.add_parser("screen", help="screen a posting before applying")
     screen_parser.add_argument("--file", required=True, help="the posting text")
     screen_parser.add_argument("--cv", default=None, help="the CV text (default: profile.cv)")
@@ -235,6 +246,41 @@ def main(argv: list[str] | None = None) -> int:
             )
             added = probe.append_to(firms_path, found)
             print(f"\nwrote {added} new entries to {firms_path}")
+        return 0
+
+    if args.command == "refresh":
+        from . import enrich
+
+        db.init(store)
+        results = enrich.run(
+            config,
+            store=store,
+            limit=args.limit,
+            decision=args.decision,
+            country=args.country,
+            dry_run=args.dry_run,
+        )
+        print()
+        print(enrich.summary(results))
+        return 0
+
+    if args.command == "apply":
+        from . import apply as apply_pack
+
+        db.init(store)
+        cv_path = config.get("profile", {}).get("cv", "")
+        cv_text = ""
+        if cv_path and Path(cv_path).is_file():
+            cv_text = cv.extract(Path(cv_path))[0] if Path(cv_path).suffix.lower() in {".pdf", ".docx"} else read(cv_path)
+        apply_pack.prepare(
+            store,
+            Path(__file__).resolve().parents[2],
+            args.job,
+            config,
+            cv_text=cv_text,
+            record_it=not args.no_record,
+            open_it=args.open,
+        )
         return 0
 
     if args.command == "login":

@@ -244,13 +244,31 @@ def screen(posting: str, cv: str, candidate: Candidate | None = None) -> ScreenR
 # --- pieces --------------------------------------------------------------
 
 
+BOILERPLATE = re.compile(
+    r"\b(hybrid|working model|benefit|pension|holiday|annual leave|discount|gym|"
+    r"medical|life assurance|share scheme|referral|salary|bonus|equal opportunit\w*|"
+    r"diversity|inclusion|we believe|our culture|social event|flexible working|"
+    r"application process|interview process|reasonable adjustment\w*|visa|sponsor\w*)\b",
+    re.I,
+)
+
+
 def _requirements(posting: str) -> tuple[str, ...]:
-    """Sentences that read like a requirement, deduplicated, capped."""
+    """Sentences that read like a requirement, deduplicated, capped.
+
+    Two filters, and the second matters more than it looks. A cue word like
+    "strong" appears in "we believe in building strong connections", which is
+    culture copy, not a requirement; scoring the CV against it produces noise and
+    drags coverage down for no reason. Benefits and process sentences go the same
+    way.
+    """
     seen: set[str] = set()
     out: list[str] = []
     for sentence in re.split(r"(?<=[.!?;])\s+|\n\s*[-•*]\s*", posting):
         clean = " ".join(sentence.split())
         if len(clean) < 25 or not REQUIREMENT_CUES.search(clean):
+            continue
+        if BOILERPLATE.search(clean):
             continue
         key = clean.lower()[:120]
         if key in seen:
@@ -274,28 +292,38 @@ def _tokens(text: str) -> set[str]:
 
 
 def _coverage(requirements: tuple[str, ...], cv: str) -> tuple[tuple[str, ...], float | None]:
-    """Fraction of requirement sentences the CV evidences by token overlap.
+    """How much of each requirement the CV evidences, by token overlap.
 
-    A requirement counts as covered at 50% overlap. Crude on purpose: it is a
-    cheap first pass, and the number it produces is reported as a heuristic.
+    Graded rather than binary. The earlier rule — 50% of *every* token in the
+    sentence — made long requirements impossible: a 30-word sentence needed
+    fifteen matches, so a genuinely relevant posting scored zero. Here the
+    denominator is capped, so a long sentence needs a handful of the right words
+    rather than half of all of them, and each requirement contributes its own
+    fraction to the total.
+
+    Still a heuristic, and still reported as one.
     """
     if not requirements or not cv.strip():
         return (), None
     cv_tokens = _tokens(cv)
     if not cv_tokens:
         return (), None
+
     missing: list[str] = []
-    covered = 0
+    total = 0.0
+    counted = 0
     for requirement in requirements:
         needed = _tokens(requirement)
         if not needed:
             continue
-        if len(needed & cv_tokens) / len(needed) >= 0.5:
-            covered += 1
-        else:
+        matched = len(needed & cv_tokens)
+        denominator = max(3, min(len(needed), 10))
+        score = min(1.0, matched / denominator)
+        total += score
+        counted += 1
+        if score < 0.5:
             missing.append(requirement)
-    total = len(requirements)
-    return tuple(missing), covered / total if total else None
+    return tuple(missing), (total / counted if counted else None)
 
 
 def _salary(posting: str) -> tuple[str, int, int] | None:

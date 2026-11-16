@@ -179,6 +179,12 @@ class Filters:
         )
 
 
+# A posting that clears the knockouts but evidences under a quarter of its own
+# requirements is shown, not recommended. 0.25 is calibrated against the graded
+# coverage measure in screening._coverage, not the older binary one.
+MIN_COVERAGE = 0.25
+
+
 @dataclass
 class Result:
     firm: str
@@ -372,7 +378,7 @@ def run(
                     note = "senior title; check the level before applying"
                 # Zero overlap with the CV is not a recommendation, whatever the
                 # knockouts said.
-                if decision == "apply" and report.coverage is not None and report.coverage < 0.2:
+                if decision == "apply" and report.coverage is not None and report.coverage < MIN_COVERAGE:
                     decision = "ask"
                     note = "low keyword overlap with the CV; read the posting"
                 result.kept_titles.append(

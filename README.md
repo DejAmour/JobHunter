@@ -81,6 +81,36 @@ To keep the list current without thinking about it:
 powershell -ExecutionPolicy Bypass -File scripts\schedule_discovery.ps1
 ```
 
+## Reading the full posting
+
+Aggregators truncate: Adzuna gives 500 characters, Reed about 450, SEEK one line.
+That is enough to spot a title, not enough to screen, so those rows land at
+`apply` with no coverage.
+
+```
+python -m jobhunter refresh --limit 40
+python -m jobhunter refresh --country uk --decision apply
+```
+
+It opens each posting in a real browser (many are JavaScript applications),
+takes the main text, re-screens it and rewrites the row. A posting that still
+cannot be read is marked `ask` — an unreadable posting is not an approved one.
+
+## Preparing an application
+
+```
+python -m jobhunter apply --job 2
+python -m jobhunter apply --job 2 --open
+```
+
+This is not a form filler; it is the part that is tedious but safe. It picks the
+CV variant the posting's title points at, writes an answer sheet from
+`[answers]`, pulls the CV lines that overlap most with the advert, lists what the
+posting asks for that the CV does not evidence, records the intent, and leaves a
+checklist in `output/applications/<company>-<role>/application.md`.
+
+Nothing is submitted and nothing is invented.
+
 ## LinkedIn and Indeed
 
 Indeed is read through **JobSpy** (`speedyapply/JobSpy`, MIT), used as a library:
