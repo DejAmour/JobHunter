@@ -61,6 +61,9 @@ class Values:
     org: str = ""
     linkedin: str = ""
     cv_path: str = ""
+    address: str = ""
+    city: str = ""
+    postcode: str = ""
 
     def as_dict(self) -> dict[str, str]:
         return {
@@ -74,6 +77,9 @@ class Values:
             "org": self.org,
             "linkedin": self.linkedin,
             "resume": self.cv_path,
+            "address": self.address,
+            "city": self.city,
+            "postcode": self.postcode,
         }
 
     def empty(self) -> list[str]:
@@ -103,6 +109,9 @@ def values_from(config: dict, *, cv_path: str, org: str = "", market: str = "uk"
         # LinkedIn URL, and inventing one would be a lie in a form.
         linkedin=str(answers.get("linkedin", "")),
         cv_path=cv_path,
+        address=str(answers.get("address", "")),
+        city=str(answers.get("city", "")),
+        postcode=str(answers.get("postcode", "")),
     )
 
 
@@ -116,6 +125,7 @@ class FillReport:
     required_left: list[str] = field(default_factory=list)
     questions_answered: list[tuple[str, str]] = field(default_factory=list)
     questions_review: list[tuple[str, str]] = field(default_factory=list)
+    steps: list[str] = field(default_factory=list)
     screenshot: str = ""
     submitted: bool = False
     error: str = ""
@@ -126,6 +136,8 @@ class FillReport:
             lines.append(f"  error: {self.error}")
             return "\n".join(lines)
         lines.append(f"  filled:  {', '.join(self.filled) or 'nothing'}")
+        if self.steps:
+            lines.append(f"  steps:   {' -> '.join(self.steps)}")
         if self.skipped:
             lines.append(f"  skipped: {', '.join(self.skipped)}")
         if self.empty_answers:
@@ -312,7 +324,139 @@ class GenericQuestions:
         return report
 
 
-FILLERS = {"greenhouse": Greenhouse, "lever": Lever, "questions": GenericQuestions}
+class Workday:
+    """Workday's wizard, one step at a time.
+
+    Workday is five pages behind an account: My Information, My Experience,
+    Application Questions, Voluntary Disclosures, Review. This fills whichever
+    step is showing, and can advance to the next with ``advance``. It does not
+    sign in — account creation is per employer and a password belongs in the
+    Credential Manager, not here — and it does not submit.
+    """
+
+    name = "workday"
+
+    STEP_MARKERS = (
+        ("sign-in", ("[data-automation-id='signInPage']", "input[data-automation-id='signInEmail']", "#signInPage")),
+        ("my-information", ("[data-automation-id='legalNameSection_firstName']", "#firstName")),
+        ("my-experience", ("[data-automation-id='workExperienceSection']", "#jobTitle")),
+        ("questions", ("[data-automation-id='applicationQuestions']", "fieldset legend")),
+        ("disclosures", ("[data-automation-id='voluntaryDisclosures']", "[data-automation-id='selfIdentify']")),
+        ("review", ("[data-automation-id='reviewPage']", "[data-automation-id='submitButton']")),
+    )
+
+    # Real Workday automation ids, with the fixture ids alongside them.
+    FIELDS = {
+        "first_name": "[data-automation-id='legalNameSection_firstName'], #firstName",
+        "last_name": "[data-automation-id='legalNameSection_lastName'], #lastName",
+        "email": "input[data-automation-id='email'], #email",
+        "phone": "input[data-automation-id='phone-number'], #phone",
+        "address": "[data-automation-id='addressSection_addressLine1'], #address",
+        "city": "[data-automation-id='addressSection_city'], #city",
+        "postcode": "[data-automation-id='addressSection_postalCode'], #postalCode",
+        "linkedin": "[data-automation-id='linkedin'], #linkedin",
+    }
+    COUNTRY = "[data-automation-id='addressSection_countryRegion'], #country"
+    RESUME = "input[data-automation-id='file-upload-input-ref'], input#resume, input[name='resume']"
+    NEXT = "[data-automation-id='pageFooterNextButton'], button[data-action='continue']"
+
+    def step(self, page) -> str:
+        for name, selectors in self.STEP_MARKERS:
+            for selector in selectors:
+                try:
+                    if page.query_selector(selector) is not None:
+                        return name
+                except Exception:  # noqa: BLE001
+                    continue
+        return ""
+
+    def fill(self, page, values: Values, ctx=None, *, advance: bool = False, steps: int = 5) -> FillReport:
+        report = FillReport(url=page.url, ats=self.name)
+        data = values.as_dict()
+
+        for _ in range(max(1, steps)):
+            step = self.step(page)
+            report.steps.append(step or "unknown")
+
+            if step == "sign-in":
+                report.error = "sign-in required: Workday accounts are per employer, so this one is yours"
+                return report
+            if step in ("my-information", ""):
+                self._fields(page, data, report)
+            if step in ("my-experience", ""):
+                self._resume(page, data, report)
+            if step in ("questions", ""):
+                fill_questions(page, ctx, "form input, form select, form textarea, fieldset legend", report) if ctx else None
+            if step == "disclosures":
+                report.questions_review.append(
+                    ("Voluntary disclosures", "protected: never auto-answered")
+                )
+            if step == "review" or step == "unknown":
+                return report
+
+            if not advance:
+                return report
+
+            button = page.query_selector(self.NEXT)
+            if button is None:
+                return report
+            button.click()
+            page.wait_for_timeout(2500)
+
+        return report
+
+    def _fields(self, page, data, report):
+        for key, selector in self.FIELDS.items():
+            element = self._one(page, selector)
+            if element is None:
+                continue
+            value = data.get(key, "")
+            if not value:
+                report.empty_answers.append(key)
+                continue
+            element.fill(value)
+            report.filled.append(key)
+
+        country = self._one(page, self.COUNTRY)
+        if country is not None:
+            value = data.get("country", "")
+            if not value:
+                report.empty_answers.append("country")
+            else:
+                try:
+                    _select_by_text(country, value)
+                    report.filled.append("country")
+                except Exception:  # noqa: BLE001
+                    report.skipped.append(f"country (no option matching {value!r})")
+
+    def _resume(self, page, data, report):
+        element = self._one(page, self.RESUME)
+        if element is None:
+            return
+        path = data.get("resume", "")
+        if not path or not Path(path).is_file():
+            report.empty_answers.append("resume")
+            return
+        element.set_input_files(path)
+        # Workday parses the CV and fills the history with it; the parser is
+        # decent and wrong in places, which is why the review step exists.
+        page.wait_for_timeout(4000)
+        report.filled.append("resume")
+
+    @staticmethod
+    def _one(page, selector):
+        try:
+            return page.query_selector(selector)
+        except Exception:  # noqa: BLE001
+            return None
+
+
+FILLERS = {
+    "greenhouse": Greenhouse,
+    "lever": Lever,
+    "workday": Workday,
+    "questions": GenericQuestions,
+}
 
 
 def fill_questions(page, ctx, selector: str, report: FillReport) -> None:
@@ -416,6 +560,7 @@ def context_for(config: dict, pack, evidence: list[str] | None = None):
         profile=config.get("profile", {}),
         candidate=config.get("candidate", {}),
         evidence=evidence if evidence is not None else list(pack.evidence),
+        disclosures=config.get("disclosures", {}),
     )
 
 
@@ -445,6 +590,7 @@ def run(
     ats: str = "",
     ctx=None,
     submit: bool = False,
+    advance: bool = False,
     headless: bool = True,
     screenshot_dir: Path | None = None,
     timeout_ms: int = 45_000,
@@ -472,6 +618,10 @@ def run(
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             page.wait_for_timeout(1200)
             report = filler().fill(page, values, ctx)
+            if kind == "workday":
+                # Workday is a wizard; give the filler the advance flag and let it
+                # walk the steps it can see.
+                report = Workday().fill(page, values, ctx, advance=advance)
             report.ats = kind
             report.url = page.url
             report.required_left = required_still_empty(page)

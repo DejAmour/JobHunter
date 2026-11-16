@@ -30,6 +30,15 @@ PROTECTED = re.compile(
     re.I,
 )
 
+# Which voluntary-disclosure answer a protected question would use, if the
+# candidate stored one. Nothing is stored by default.
+DISCLOSURE_KEYS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"gender|sex\b", re.I), "gender"),
+    (re.compile(r"ethnic|race\b|racial", re.I), "ethnicity"),
+    (re.compile(r"veteran", re.I), "veteran_status"),
+    (re.compile(r"disabilit", re.I), "disability"),
+)
+
 
 @dataclass
 class Context:
@@ -42,9 +51,14 @@ class Context:
     profile: dict = field(default_factory=dict)
     candidate: dict = field(default_factory=dict)
     evidence: list[str] = field(default_factory=list)
+    disclosures: dict = field(default_factory=dict)
 
     def get(self, key: str, default: str = "") -> str:
         return str(self.answers.get(key, default) or default)
+
+    def get_disclosure(self, key: str) -> str:
+        """A voluntary-disclosure answer, only if the candidate stored one."""
+        return str(self.disclosures.get(key, "") or "")
 
 
 @dataclass(frozen=True)
@@ -276,6 +290,11 @@ def answer_for(label: str, ctx: Context) -> Answer | None:
     if not text:
         return None
     if PROTECTED.search(text):
+        for pattern, key in DISCLOSURE_KEYS:
+            if pattern.search(text):
+                stored = ctx.get_disclosure(key)
+                if stored:
+                    return Answer(stored, "review", f"your stored {key} answer; check it before submitting")
         return Answer("", "review", "protected question: yours to answer, never guessed")
 
     for pattern, rule in RULES:

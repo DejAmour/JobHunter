@@ -34,3 +34,6 @@ domains.local.txt
 # Personal contact details used to render the CV (name, phone, email, address).
 # cv/contact.example.toml is the committed template.
 cv/contact.toml
+
+# The fact sheet written by `jobhunter facts` — address, phone, disclosures.
+facts.toml

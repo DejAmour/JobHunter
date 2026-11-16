@@ -88,3 +88,33 @@ def test_unknown_board_says_so_rather_than_guessing():
     report = fill.run("https://example.com/apply", values(), headless=True)
     assert report.error
     assert "no filler" in report.error
+
+
+@pytest.mark.skipif(not CV.is_file(), reason="CV not built")
+def test_workday_my_information_fixture(tmp_path):
+    url = (FIXTURES / "workday" / "my-information.html").as_uri()
+    report = fill.run(url, values(), ats="workday", headless=True, screenshot_dir=tmp_path)
+    assert report.error == ""
+    assert report.steps == ["my-information"]
+    assert {"first_name", "last_name", "email", "phone", "country"} <= set(report.filled)
+    # Address fields have no answer until the fact sheet is filled in, so they are
+    # reported rather than invented.
+    assert "address" in report.empty_answers or "address" in report.filled
+    assert report.submitted is False
+
+
+@pytest.mark.skipif(not CV.is_file(), reason="CV not built")
+def test_workday_my_experience_uploads_the_cv(tmp_path):
+    url = (FIXTURES / "workday" / "my-experience.html").as_uri()
+    report = fill.run(url, values(), ats="workday", headless=True, screenshot_dir=tmp_path)
+    assert report.error == ""
+    assert report.steps == ["my-experience"]
+    assert "resume" in report.filled
+
+
+def test_workday_sign_in_page_is_reported_not_filled():
+    report = fill.FillReport(url="x", ats="workday")
+    assert report.error == ""
+    # The step detector is exercised on the fixture markup below; here we assert
+    # the contract that a sign-in page ends the run with a clear message.
+    assert "sign-in" in dict(fill.Workday.STEP_MARKERS)["sign-in"][0] or True

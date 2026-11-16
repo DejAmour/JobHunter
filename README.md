@@ -138,6 +138,35 @@ employer:
 python -m pytest tests/test_fill.py -q
 ```
 
+### Workday
+
+Workday is five pages behind an account: My Information, My Experience,
+Application Questions, Voluntary Disclosures, Review. The filler detects which
+step is showing, fills what it can, and with `--advance` walks to the next step,
+stopping at Review.
+
+```
+python -m jobhunter fill --job 4 --advance
+```
+
+What it will not do: create an account or sign in for you. Workday accounts are
+per employer, so that one is yours, and the password belongs in Windows
+Credential Manager rather than in this repository.
+### The fact sheet
+
+```
+python -m jobhunter facts
+```
+
+Asked once, reused by every form: name, address, postcode, phone, quals, notice
+period, salary expectation, right to work. Stored in `~/.jobhunter/facts.toml`,
+which is gitignored, and read by every command.
+
+Voluntary disclosures (gender, ethnicity, veteran status, disability) are the
+last four questions and are **opt-in**: say no and they are never stored, and
+forms leave them blank. Say yes and they are filled — still flagged for review,
+because a declaration about you is always yours to confirm.
+
 ### Questions on the form
 
 Two kinds, treated differently.

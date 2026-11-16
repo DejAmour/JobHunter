@@ -88,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
 
     commands.add_parser("doctor", help="report what is configured")
     commands.add_parser("db-init", help="create the store")
+    commands.add_parser("facts", help="answer the fact sheet once, reused by every form")
 
     discover_parser = commands.add_parser("discover", help="read employer job boards and screen what is there")
     discover_parser.add_argument("--firms", default=None, help="path to firms.toml")
@@ -132,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     fill_parser.add_argument("--headless", action="store_true", help="do not show the browser window")
     fill_parser.add_argument("--url", default="", help="override the posting URL (useful for fixtures)")
     fill_parser.add_argument("--ats", default="", help="force a board type (greenhouse, lever) instead of detecting it")
+    fill_parser.add_argument("--advance", action="store_true", help="on Workday, walk to the next step after filling")
 
     screen_parser = commands.add_parser("screen", help="screen a posting before applying")
     screen_parser.add_argument("--file", required=True, help="the posting text")
@@ -164,6 +166,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     config_path = Path(args.config) if args.config else home() / "config.toml"
     config = load(config_path)
+    from . import facts as facts_module
+
+    config = facts_module.merge(config, home())
     store = home() / "jobs.db"
 
     if args.command == "doctor":
@@ -178,6 +183,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"cv:     {cv_setting or '(none set)'}")
         print(f"plugins: {len(list((Path(__file__).parents[2] / 'vendor' / 'aihawk' / 'plugins').glob('*.md')))} vendored")
         return 0
+
+    if args.command == "facts":
+        from . import facts
+
+        return facts.run(home())
 
     if args.command == "db-init":
         db.init(store)
@@ -321,6 +331,7 @@ def main(argv: list[str] | None = None) -> int:
             ats=args.ats,
             ctx=form_fill.context_for(config, pack),
             submit=args.submit,
+            advance=args.advance,
             headless=args.headless,
             screenshot_dir=root / "output" / "applications" / apply_pack._slug(
                 f"{pack.job['company']}-{pack.job['title']}"
