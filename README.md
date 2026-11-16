@@ -138,6 +138,17 @@ Don't edit the DOCX. Edit `cv/content.toml` and run:
 python scripts/build_cv.py --all
 ```
 
+Contact details live in `cv/contact.toml`, which is gitignored — a public
+repository should not carry a phone number. On a fresh clone:
+
+```
+copy cv\contact.example.toml cv\contact.toml
+```
+
+then fill in your own name, location, phone and email. The build overlays that
+file on top of `content.toml`, so the work history stays in one reviewable place
+and the personal details stay out of git.
+
 That writes one DOCX per variant per market — `Jed Dahlke CV Risk.docx`,
 `Jed Dahlke CV Risk (AU).docx`, and so on — plus a `.txt` twin. Convert with
 `python scripts/export_pdfs.py`, then check any version with:
