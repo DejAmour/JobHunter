@@ -138,6 +138,29 @@ employer:
 python -m pytest tests/test_fill.py -q
 ```
 
+### Questions on the form
+
+Two kinds, treated differently.
+
+**Facts** are transcribed from the answer bank: sponsorship on a UK role is `No`,
+right to work is `Yes`, notice period, current title, qualifications, how you
+heard. If a question names a country you are not entitled to work in, it is not
+answered at all — a form asking "are you authorised to work in the United
+States?" gets no answer from a UK applicant, because saying "Yes" there is a
+false statement on a legal declaration.
+
+**Words** — "why this role", "your strengths", "career goals" — come from
+`[answers.free_text]` in config, with `{company}`, `{role}` and `{evidence}`
+substituted. They are flagged for review even when filled: a paragraph you wrote
+still deserves a read before it goes to an employer. `why_company` is deliberately
+empty, because a generic "why us" is the answer that reads as fake and has to be
+written per firm.
+
+Never answered, whatever the bank says: gender, ethnicity, veteran status,
+disability, religion, date of birth, criminal history. Those are declarations
+about a person, and a blank field the employer rejects is a better outcome than a
+confident guess.
+
 ## LinkedIn and Indeed
 
 Indeed is read through **JobSpy** (`speedyapply/JobSpy`, MIT), used as a library:

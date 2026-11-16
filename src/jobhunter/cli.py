@@ -319,6 +319,7 @@ def main(argv: list[str] | None = None) -> int:
             url,
             values,
             ats=args.ats,
+            ctx=form_fill.context_for(config, pack),
             submit=args.submit,
             headless=args.headless,
             screenshot_dir=root / "output" / "applications" / apply_pack._slug(

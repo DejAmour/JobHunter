@@ -114,6 +114,8 @@ class FillReport:
     skipped: list[str] = field(default_factory=list)
     empty_answers: list[str] = field(default_factory=list)
     required_left: list[str] = field(default_factory=list)
+    questions_answered: list[tuple[str, str]] = field(default_factory=list)
+    questions_review: list[tuple[str, str]] = field(default_factory=list)
     screenshot: str = ""
     submitted: bool = False
     error: str = ""
@@ -128,6 +130,15 @@ class FillReport:
             lines.append(f"  skipped: {', '.join(self.skipped)}")
         if self.empty_answers:
             lines.append(f"  no answer for: {', '.join(self.empty_answers)}")
+        if self.questions_answered:
+            lines.append("  questions answered:")
+            for question, value in self.questions_answered:
+                shown = value if len(value) <= 70 else value[:67] + "..."
+                lines.append(f"    {question[:58]} -> {shown}")
+        if self.questions_review:
+            lines.append("  questions left for you:")
+            for question, reason in self.questions_review:
+                lines.append(f"    {question[:64]} ({reason})")
         if self.required_left:
             lines.append(f"  still required: {', '.join(self.required_left)}")
         lines.append(f"  submitted: {'yes' if self.submitted else 'no'}")
@@ -154,11 +165,18 @@ class Greenhouse:
     SELECT = {"country": "#country"}
     FILE = {"resume": "#resume"}
 
-    def fill(self, page, values: Values) -> FillReport:
+    def fill(self, page, values: Values, ctx=None) -> FillReport:
         report = FillReport(url=page.url, ats=self.name)
         self._text(page, values, report)
         self._select(page, values, report)
         self._file(page, values, report)
+        if ctx is not None:
+            fill_questions(
+                page,
+                ctx,
+                'input[id^="question_"], select[id^="question_"], textarea[id^="question_"]',
+                report,
+            )
         return report
 
     def _text(self, page, values, report):
@@ -219,7 +237,7 @@ class Lever:
     }
     FILE = {"resume": "input[name='resume'], #resume-upload-input"}
 
-    def fill(self, page, values: Values) -> FillReport:
+    def fill(self, page, values: Values, ctx=None) -> FillReport:
         report = FillReport(url=page.url, ats=self.name)
         data = values.as_dict()
         for key, selector in self.TEXT.items():
@@ -261,10 +279,144 @@ class Lever:
             element.set_input_files(path)
             time.sleep(1.5)
             report.filled.append(key)
+
+        if ctx is not None:
+            fill_questions(
+                page,
+                ctx,
+                "input[name^='cards['], select[name^='cards['], textarea[name^='cards[']",
+                report,
+            )
         return report
 
 
-FILLERS = {"greenhouse": Greenhouse, "lever": Lever}
+class GenericQuestions:
+    """Answers whatever question fields a page shows, and nothing else.
+
+    Used for pages whose standard fields a dedicated filler already handled —
+    Workday's question step is the obvious case — and for exercising the question
+    engine against a fixture.
+    """
+
+    name = "questions"
+
+    def fill(self, page, values: Values, ctx=None) -> FillReport:
+        report = FillReport(url=page.url, ats=self.name)
+        if ctx is not None:
+            fill_questions(
+                page,
+                ctx,
+                "form input, form select, form textarea",
+                report,
+            )
+        return report
+
+
+FILLERS = {"greenhouse": Greenhouse, "lever": Lever, "questions": GenericQuestions}
+
+
+def fill_questions(page, ctx, selector: str, report: FillReport) -> None:
+    """Answer whichever custom questions the page shows, from the answer bank.
+
+    Works on any markup: it reads the question from the label or the fieldset
+    legend, so the same code answers a Greenhouse ``#question_*`` field, a Lever
+    ``cards[...]`` field and a Workday fieldset.
+    """
+    from . import questions
+
+    seen: set[str] = set()
+    for element in page.query_selector_all(selector):
+        name = element.get_attribute("name") or element.get_attribute("id") or ""
+        widget = questions.widget_of(element)
+        if widget in ("hidden", "submit", "button", "file"):
+            continue
+        # One pass per radio group, keyed by name.
+        if widget == "radio":
+            if name in seen:
+                continue
+            seen.add(name)
+
+        label = questions.question_text(element)
+        answer = questions.answer_for(label, ctx)
+        if answer is None:
+            # Not a question this engine claims to answer. Silence is right here;
+            # required_still_empty() reports it if the employer insists.
+            continue
+        if answer.confidence != "certain" or not answer.value:
+            report.questions_review.append((label, answer.reason))
+            continue
+
+        try:
+            if widget == "select":
+                _select_by_text(element, answer.value)
+            elif widget in ("radio", "checkbox"):
+                if not _click_option(page, element, answer.value):
+                    report.questions_review.append((label, f"no '{answer.value}' option on the page"))
+                    continue
+            else:
+                element.fill(answer.value)
+            report.questions_answered.append((label, answer.value))
+        except Exception as error:  # noqa: BLE001
+            reason = str(error) if isinstance(error, LookupError) else f"could not fill: {type(error).__name__}"
+            report.questions_review.append((label, reason))
+
+
+def _select_by_text(element, value: str) -> None:
+    """Choose the option whose label matches, falling back to a case-insensitive scan."""
+    try:
+        element.select_option(label=value)
+        return
+    except Exception:  # noqa: BLE001
+        pass
+    options = [
+        ((option.inner_text() or "").strip(), option.get_attribute("value") or "")
+        for option in element.query_selector_all("option")
+    ]
+    for text, option_value in options:
+        if text.lower() == value.lower():
+            element.select_option(value=option_value or text)
+            return
+    for text, option_value in options:
+        if text and (value.lower() in text.lower() or text.lower() in value.lower()):
+            element.select_option(value=option_value or text)
+            return
+    available = ", ".join(text for text, _ in options if text) or "none"
+    raise LookupError(f"no option matching {value!r} (offers: {available})")
+
+
+def _click_option(page, element, value: str) -> bool:
+    """Click the radio or checkbox in this group whose label matches."""
+    name = element.get_attribute("name") or ""
+    group = page.query_selector_all(f"input[name='{name}']") if name else [element]
+    for candidate in group:
+        label = candidate.evaluate(
+            """
+            (el) => {
+              const clean = (t) => (t || '').replace(/\\s+/g, ' ').trim();
+              if (el.labels && el.labels.length) return clean(el.labels[0].innerText);
+              return clean(el.value);
+            }
+            """
+        )
+        if label.lower().strip(" .*") == value.lower().strip(" .*"):
+            candidate.check()
+            return True
+    return False
+
+
+def context_for(config: dict, pack, evidence: list[str] | None = None):
+    """The question context for one application."""
+    from . import questions
+
+    return questions.Context(
+        market=pack.market,
+        company=pack.job["company"],
+        role=pack.job["title"],
+        answers=config.get("answers", {}),
+        profile=config.get("profile", {}),
+        candidate=config.get("candidate", {}),
+        evidence=evidence if evidence is not None else list(pack.evidence),
+    )
 
 
 def required_still_empty(page) -> list[str]:
@@ -291,6 +443,7 @@ def run(
     values: Values,
     *,
     ats: str = "",
+    ctx=None,
     submit: bool = False,
     headless: bool = True,
     screenshot_dir: Path | None = None,
@@ -318,7 +471,7 @@ def run(
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             page.wait_for_timeout(1200)
-            report = filler().fill(page, values)
+            report = filler().fill(page, values, ctx)
             report.ats = kind
             report.url = page.url
             report.required_left = required_still_empty(page)
