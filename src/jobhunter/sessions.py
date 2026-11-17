@@ -146,13 +146,28 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
             )
             print(f"  {status}")
 
-            # An account may already exist from an earlier attempt; that is a
-            # success with a different door, not a failure.
+            # An account may already exist from an earlier attempt, or may not
+            # exist at all; that is a door problem, not a failure. Try the other
+            # door once rather than making a person guess with --create. A wrong
+            # password is not a door problem, so it is not retried.
             if status.startswith("failed: an account already exists"):
                 status = workday.sign_in(
                     page, email=account.email, password=password, create=False, on_code=on_code
                 )
                 print(f"  {status}")
+            elif status == "bad-password" or status.startswith("failed: no sign-in"):
+                pass
+            elif status.startswith("failed:") and create is False:
+                print("  no such account here; creating it")
+                status = workday.sign_in(
+                    page, email=account.email, password=password, create=True, on_code=on_code
+                )
+                print(f"  {status}")
+                if status.startswith("failed: an account already exists"):
+                    status = workday.sign_in(
+                        page, email=account.email, password=password, create=False, on_code=on_code
+                    )
+                    print(f"  {status}")
 
             if status == "code-needed":
                 print("\nWorkday wants to verify your email — a code, and sometimes a link.")
