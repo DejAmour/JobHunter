@@ -125,7 +125,19 @@ def main(argv: list[str] | None = None) -> int:
     account_add.add_argument("--firm", required=True)
     account_add.add_argument("--email", default="", help="defaults to profile.email")
     account_add.add_argument("--ats", default="workday")
+    account_add.add_argument(
+        "--generate",
+        action="store_true",
+        help="generate a strong password instead of typing one (shown once)",
+    )
+    account_add.add_argument("--length", type=int, default=20, help="length for --generate")
     account_commands.add_parser("list", help="show what is registered")
+    account_show = account_commands.add_parser("show", help="print the stored password for one employer")
+    account_show.add_argument("--firm", required=True)
+    account_export = account_commands.add_parser(
+        "export", help="write every stored password to a CSV a password manager can import"
+    )
+    account_export.add_argument("--out", default="", help="defaults to ~/.jobhunter/passwords.csv")
     account_remove = account_commands.add_parser("remove", help="forget an employer account")
     account_remove.add_argument("--firm", required=True)
 
@@ -134,6 +146,12 @@ def main(argv: list[str] | None = None) -> int:
     mail_setup = mail_commands.add_parser("setup", help="store a Gmail app password")
     mail_setup.add_argument("--address", default="", help="defaults to profile.email")
     mail_commands.add_parser("check", help="show whether a code can be read right now")
+    mail_link = mail_commands.add_parser(
+        "link", help="find the newest verification or password-reset link"
+    )
+    mail_link.add_argument("--firm", default="", help="narrow to this employer's mail")
+    mail_link.add_argument("--wait", type=float, default=0, help="seconds to wait for it to arrive")
+    mail_link.add_argument("--open", action="store_true", help="open it in your browser")
 
     refresh_parser = commands.add_parser("refresh", help="read the full posting for rows that only stored a summary")
     refresh_parser.add_argument("--limit", type=int, default=40)
@@ -477,19 +495,52 @@ def main(argv: list[str] | None = None) -> int:
             if not credentials.available():
                 print("no credential store on this machine; refusing to write a password to disk")
                 return 2
-            print(f"password for {email} at {args.firm}")
-            print("it goes to the Windows Credential Manager, not to a file in this repository.")
-            first = getpass.getpass("password: ")
-            second = getpass.getpass("again: ")
-            if not first:
-                print("empty password; nothing stored")
-                return 2
-            if first != second:
-                print("the two did not match; nothing stored")
-                return 2
+
+            generated = ""
+            if getattr(args, "generate", False):
+                generated = accounts_module.generate_password(getattr(args, "length", 20))
+                print(f"generated a {len(generated)}-character password for {email} at {args.firm}")
+                print("this is the only time it is shown. `jobhunter account show` will print it again.")
+                first = generated
+            else:
+                print(f"password for {email} at {args.firm}")
+                print("it goes to the Windows Credential Manager, not to a file in this repository.")
+                first = getpass.getpass("password: ")
+                second = getpass.getpass("again: ")
+                if not first:
+                    print("empty password; nothing stored")
+                    return 2
+                if first != second:
+                    print("the two did not match; nothing stored")
+                    return 2
+
             account = accounts_module.add(home(), args.firm, email, ats=args.ats, password=first)
             print(f"registered {account}")
+            if generated:
+                print(f"  password: {generated}")
+                print("  paste it into the employer's form if you are creating the account by hand,")
+                print("  and into your password manager when you next sync it.")
             return 0
+
+        if args.account_command == "show":
+            account = accounts_module.find(home(), args.firm)
+            if account is None:
+                print(f"no account for {args.firm!r}: `jobhunter account add --firm \"{args.firm}\"`")
+                return 2
+            secret = credentials.load(account.ats, account.slug)
+            if secret is None:
+                print(f"{account}: no password stored")
+                return 2
+            print(f"{account}")
+            print(f"  password: {secret.password}")
+            return 0
+
+        if args.account_command == "export":
+            out = Path(args.out) if args.out else home() / "passwords.csv"
+            rows = accounts_module.export_csv(home(), out)
+            print(f"wrote {rows} password(s) to {out}")
+            print("this file is plaintext. Import it into your password manager, then delete it.")
+            return 0 if rows else 1
 
         if args.account_command == "remove":
             if accounts_module.remove(home(), args.firm):
@@ -526,6 +577,31 @@ def main(argv: list[str] | None = None) -> int:
             problem = mailbox.verify(config)
             print(f"{mailbox.address(config)}: {'ok' if not problem else problem}")
             return 0 if not problem else 1
+
+        if args.mail_command == "link":
+            if not mailbox.available(config):
+                print("no app password stored: `jobhunter mail setup`")
+                print("until then, the reset link has to be clicked in your inbox by hand.")
+                return 2
+            hints: tuple[str, ...] = ("workday",)
+            if args.firm:
+                hints = ("workday", args.firm.lower())
+            print(f"looking for the newest verification or reset mail{f' from {args.firm}' if args.firm else ''}")
+            found = mailbox.latest_link(
+                config, hints=hints, wait_seconds=args.wait, tenant=args.firm
+            )
+            if found is None:
+                print("nothing found in the last 15 minutes")
+                return 1
+            print(f"  subject: {found.subject}")
+            print(f"  from:    {found.sender}")
+            print(f"  link:    {found.url}")
+            if args.open:
+                import webbrowser
+
+                webbrowser.open(found.url)
+                print("  opened in your browser")
+            return 0
 
     if args.command == "import":
         from . import import_cmd

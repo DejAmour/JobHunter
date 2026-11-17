@@ -14,13 +14,76 @@ gitignored, and the passwords are not in either.
 
 from __future__ import annotations
 
+import csv
 import re
+import secrets
+import string
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 from . import credentials
 
 FILE = "accounts.toml"
+
+# Characters that are easy to misread when you have to type a password into a
+# browser by hand, which is exactly what happens when an account locks and the
+# only route back is a reset form.
+LOOKALIKES = "IlO0o1|`'\";:,.<>()[]{}~\\/"
+
+LOWER = "".join(character for character in string.ascii_lowercase if character not in LOOKALIKES)
+UPPER = "".join(character for character in string.ascii_uppercase if character not in LOOKALIKES)
+DIGITS = "23456789"
+SYMBOLS = "!@#$%^&*-_=+?"
+
+
+def generate_password(length: int = 20) -> str:
+    """A password that satisfies the rules employers actually print.
+
+    Workday asks for eight characters, an uppercase, a lowercase, a numeric and
+    a special. It also silently rejects some things nobody documents, so this
+    avoids lookalike characters and anything a keyboard layout might mangle.
+
+    One character from each pool is guaranteed, then the rest is random and the
+    whole thing is shuffled: a fixed pattern like "letter, letter, symbol" is
+    the kind of thing a bot-detector scores.
+    """
+    if length < 12:
+        raise ValueError("refusing to generate shorter than 12 characters")
+    pools = (UPPER, LOWER, DIGITS, SYMBOLS)
+    characters = [secrets.choice(pool) for pool in pools]
+    everything = "".join(pools)
+    characters += [secrets.choice(everything) for _ in range(length - len(characters))]
+    secrets.SystemRandom().shuffle(characters)
+    return "".join(characters)
+
+
+def export_csv(home: Path, path: Path) -> int:
+    """Write every stored password to a CSV a manager can import.
+
+    The format is Bitwarden's (name,url,username,password,notes), which KeePassXC
+    and 1Password will also import with a column mapping. It is plaintext on
+    purpose: the point is to hand it to a password manager once, then delete it.
+    """
+    rows = 0
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["name", "url", "username", "password", "notes"])
+        for account in load(home):
+            secret = credentials.load(account.ats, account.slug)
+            if secret is None:
+                continue
+            writer.writerow(
+                [
+                    f"{account.firm} ({account.ats})",
+                    f"https://{account.tenant}/" if account.tenant else "",
+                    account.email,
+                    secret.password,
+                    "Employer login managed by jobhunter.",
+                ]
+            )
+            rows += 1
+    return rows
 
 
 def slug(text: str) -> str:

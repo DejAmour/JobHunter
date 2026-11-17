@@ -248,3 +248,9 @@ tried or considered and the reason it lost would otherwise be rediscovered.
 - **ADR 5 — Recorded fixtures beat hand-written ones.** Tests built from markup
   we wrote pass while the live page fails. Behaviour is recorded from the real
   tenant once and replayed.
+- **ADR 6 — One credential store, with an exit to a real manager.** Passwords
+  live in the OS store because that is the only backend an unattended run can
+  read without an unlock prompt. Generated passwords are the default for new
+  accounts; `account export` writes a plaintext CSV for Bitwarden or KeePassXC
+  so the human copy is a real manager, not a notes file. Mail access exists only
+  to read a code or a reset link, and never marks a message read.

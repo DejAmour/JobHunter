@@ -39,6 +39,16 @@ class Code:
         return self.value
 
 
+@dataclass(frozen=True)
+class Link:
+    url: str
+    subject: str = ""
+    sender: str = ""
+
+    def __str__(self) -> str:
+        return self.url
+
+
 def address(config: dict) -> str:
     return str(
         (config.get("mail") or {}).get("address", "")
@@ -111,7 +121,13 @@ def extract_code(text: str) -> str:
     return ""
 
 
-def _body_text(message: email.message.Message, limit: int = 4000) -> str:
+def _body_text(message: email.message.Message, limit: int = 4000, *, keep_links: bool = False) -> str:
+    """The readable text of a message.
+
+    With ``keep_links`` the hrefs survive: an HTML mail that says "Reset your
+    password" hides the only useful part in the anchor, and stripping tags
+    throws it away.
+    """
     if message.is_multipart():
         for part in message.walk():
             if part.get_content_type() == "text/plain" and "attachment" not in str(part.get("Content-Disposition", "")):
@@ -121,10 +137,78 @@ def _body_text(message: email.message.Message, limit: int = 4000) -> str:
             if part.get_content_type() == "text/html":
                 payload = part.get_payload(decode=True) or b""
                 html = payload.decode(part.get_content_charset() or "utf-8", "replace")[:limit]
-                return re.sub(r"<[^>]+>", " ", html)
+                return _html_text(html, keep_links=keep_links)
         return ""
     payload = message.get_payload(decode=True) or b""
-    return payload.decode(message.get_content_charset() or "utf-8", "replace")[:limit]
+    text = payload.decode(message.get_content_charset() or "utf-8", "replace")[:limit]
+    if keep_links and message.get_content_type() == "text/html":
+        return _html_text(text, keep_links=True)
+    return text
+
+
+def _html_text(html: str, *, keep_links: bool = False) -> str:
+    if keep_links:
+        html = re.sub(
+            r'<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+            lambda match: f"{re.sub(r'<[^>]+>', ' ', match.group(2))} {match.group(1)}",
+            html,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    return re.sub(r"<[^>]+>", " ", html)
+
+
+LINK = re.compile(r"https?://[^\s<>\"')\]]+")
+
+RESET_WORDS = ("reset", "password", "activate", "verify", "verification", "set-password", "token")
+
+
+def extract_links(text: str, *, tenant: str = "") -> list[str]:
+    """Links in a message, the ones that look like account mail first.
+
+    Workday's reset mail names the tenant in the URL, and the useful link is the
+    only one that says so; a footer full of social links must not win.
+    """
+    seen: list[str] = []
+    for match in LINK.findall(text or ""):
+        url = match.rstrip(".,;:)]")
+        if url not in seen:
+            seen.append(url)
+
+    def rank(url: str) -> tuple[int, int]:
+        lowered = url.lower()
+        score = 0
+        if tenant and tenant.lower() in lowered:
+            score += 3
+        if "myworkday" in lowered or "workday" in lowered:
+            score += 2
+        if any(word in lowered for word in RESET_WORDS):
+            score += 1
+        return (-score, len(url))
+
+    return sorted(seen, key=rank)
+
+
+def latest_link(
+    config: dict,
+    *,
+    since: datetime | None = None,
+    hints: tuple[str, ...] = ("workday",),
+    tenant: str = "",
+    wait_seconds: float = 0,
+    interval: float = 6.0,
+) -> Link | None:
+    """Newest message carrying a link worth clicking, optionally waiting for it."""
+    if not available(config):
+        return None
+
+    since = since or datetime.now() - timedelta(minutes=15)
+    cutoff = (since - timedelta(days=1)).strftime("%d-%b-%Y")
+
+    def extract(subject: str, sender: str, body: str) -> Link | None:
+        links = extract_links(f"{subject}\n{body}", tenant=tenant)
+        return Link(url=links[0], subject=subject, sender=sender) if links else None
+
+    return _newest(config, cutoff, hints, extract, wait_seconds, interval)
 
 
 def latest_code(
@@ -144,9 +228,25 @@ def latest_code(
     # and filter on time locally rather than depend on the server's clock.
     cutoff = (since - timedelta(days=1)).strftime("%d-%b-%Y")
 
+    def extract(subject: str, sender: str, body: str) -> Code | None:
+        code = extract_code(f"{subject}\n{body}")
+        return Code(value=code, subject=subject, sender=sender) if code else None
+
+    return _newest(config, cutoff, hints, extract, wait_seconds, interval)
+
+
+def _newest(
+    config: dict,
+    cutoff: str,
+    hints: tuple[str, ...],
+    extract,
+    wait_seconds: float,
+    interval: float,
+):
+    """Poll until ``extract`` finds something, or the clock runs out."""
     deadline = time.monotonic() + max(0.0, wait_seconds)
     while True:
-        found = _search(config, cutoff, hints)
+        found = _scan(config, cutoff, hints, extract)
         if found is not None:
             return found
         if time.monotonic() >= deadline:
@@ -154,7 +254,7 @@ def latest_code(
         time.sleep(interval)
 
 
-def _search(config: dict, cutoff: str, hints: tuple[str, ...]) -> Code | None:
+def _scan(config: dict, cutoff: str, hints: tuple[str, ...], extract):
     try:
         connection = connect(config)
     except (imaplib.IMAP4.error, OSError):
@@ -175,9 +275,9 @@ def _search(config: dict, cutoff: str, hints: tuple[str, ...]) -> Code | None:
             haystack = f"{subject} {sender}".lower()
             if hints and not any(hint.lower() in haystack for hint in hints):
                 continue
-            code = extract_code(f"{subject}\n{_body_text(message)}")
-            if code:
-                return Code(value=code, subject=subject, sender=sender)
+            found = extract(subject, sender, _body_text(message, keep_links=True))
+            if found:
+                return found
         return None
     finally:
         try:

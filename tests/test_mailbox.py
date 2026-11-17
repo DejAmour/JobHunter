@@ -40,3 +40,34 @@ def test_the_address_defaults_to_the_profile_email():
 def test_a_configured_imap_host_is_used():
     assert mailbox.host({}) == "imap.gmail.com"
     assert mailbox.host({"mail": {"imap": "imap.example.com"}}) == "imap.example.com"
+
+
+def test_the_reset_link_beats_the_social_links():
+    body = (
+        "Reset your password https://mgpru.wd3.myworkdayjobs.com/reset?token=abc "
+        "Follow us https://twitter.com/mandg https://linkedin.com/company/mandg"
+    )
+    links = mailbox.extract_links(body, tenant="mgpru")
+    assert links[0].startswith("https://mgpru.wd3.myworkdayjobs.com/reset")
+
+
+def test_a_link_wrapped_in_punctuation_is_still_found():
+    links = mailbox.extract_links("Click here: https://x.test/reset?t=1).", tenant="x")
+    assert links == ["https://x.test/reset?t=1"]
+
+
+def test_no_links_means_no_link():
+    assert mailbox.extract_links("Thanks for applying to M&G.") == []
+
+
+def test_an_anchor_href_survives_when_links_are_wanted():
+    """Workday's HTML mail puts the URL in the href and words in the text."""
+    html = '<p>Reset it <a href="https://mgpru.wd3.myworkdayjobs.com/reset?t=9">here</a></p>'
+    text = mailbox._html_text(html, keep_links=True)
+    assert "https://mgpru.wd3.myworkdayjobs.com/reset?t=9" in text
+    # ... and is dropped when only the prose matters.
+    assert "myworkdayjobs" not in mailbox._html_text(html, keep_links=False)
+
+
+def test_a_mailbox_without_credentials_fetches_no_link():
+    assert mailbox.latest_link({}) is None

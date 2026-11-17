@@ -131,8 +131,12 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
             found = mailbox.latest_code(config, since=started, wait_seconds=120)
             return found.value if found else ""
 
-    # No saved session means no account here yet, so create rather than guess.
-    create = create or not target.is_file()
+    # Sign in by default. An account can exist without a saved session — the
+    # person may have registered by hand, or reset the password after a lock —
+    # and a second Create Account attempt on an existing email is exactly the
+    # kind of thing that gets an application flagged. The retry below creates
+    # when there is genuinely no account.
+    create = bool(create)
 
     print(f"{account.firm}: {account.email}")
     print("creating the account" if create else "signing in")
@@ -202,6 +206,11 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
                 print(f"  did not get through: {status}")
                 if status == "bad-password":
                     print(f'  refresh it: `jobhunter account add --firm "{account.firm}"`')
+                print(
+                    f'  if it is locked rather than wrong: `jobhunter mail link --firm '
+                    f'"{account.firm}" --open`, then set a new password with '
+                    f'`jobhunter account add --firm "{account.firm}" --generate`'
+                )
                 page.screenshot(path=str(target.with_suffix(".png")), full_page=True)
                 print(f"  screenshot: {target.with_suffix('.png')}")
                 return 1

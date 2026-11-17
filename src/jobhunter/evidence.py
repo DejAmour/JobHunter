@@ -246,7 +246,9 @@ class Evidence:
                 pass
             try:
                 html = page.content()
-                (self.directory / "page.html").write_text(html, encoding="utf-8")
+                (self.directory / "page.html").write_text(
+                    self._redact_html(html), encoding="utf-8"
+                )
             except Exception:  # noqa: BLE001
                 pass
             try:
@@ -281,6 +283,21 @@ class Evidence:
             (self.directory / name).write_text(content, encoding="utf-8")
         except Exception:  # noqa: BLE001
             pass
+
+    def _redact_html(self, html: str) -> str:
+        """A filled password input carries its value in the markup.
+
+        Saving the DOM verbatim wrote the account password into page.html on the
+        first live run. Both belts: remove every known secret value, and blank
+        the value attribute of anything typed as a password.
+        """
+        cleaned = redact_text(html, self.secrets)
+        return re.sub(
+            r'(<input\b[^>]*type="password"[^>]*value=")[^"]*(")',
+            r"\1" + MASK + r"\2",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
 
     # --- the ten-second version -----------------------------------------
 

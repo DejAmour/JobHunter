@@ -746,16 +746,14 @@ class Workday:
 
         Measured on the live tenant: a click can be reported as delivered while
         the form sits there untouched, password field still focused and no error
-        shown. So: clear the overlay, click, watch for progress; if nothing
-        moved, press Enter in the password field — which is what a person would
-        do, and which no overlay can intercept; then click once more.
+        shown. So: click, watch for progress; if nothing moved, press Enter in
+        the password field — which is what a person would do, and which no
+        overlay can intercept; then click once more.
         """
-        self._clear_overlays(page)
         _click(page, button)
         if self._wait_for_progress(page, 4.0):
             return
 
-        self._clear_overlays(page)
         try:
             password_field.press("Enter")
         except Exception:  # noqa: BLE001
@@ -763,7 +761,6 @@ class Workday:
         if self._wait_for_progress(page, 4.0):
             return
 
-        self._clear_overlays(page)
         _click(page, button)
         page.wait_for_timeout(wait_ms)
 
@@ -780,21 +777,6 @@ class Workday:
                 return True
             page.wait_for_timeout(400)
         return self._progressed(page)
-
-    @staticmethod
-    def _clear_overlays(page) -> None:
-        """Remove Workday's transparent click blockers.
-
-        They are not content and not clickable by a person; leaving one in place
-        is what made a whole run fail on a click that was never delivered.
-        """
-        try:
-            page.evaluate(
-                """() => document.querySelectorAll(
-                     '[data-automation-id="click_filter"]').forEach(el => el.remove())"""
-            )
-        except Exception:  # noqa: BLE001
-            pass
 
     def _dismiss_cookies(self, page) -> None:
         for selector in self.COOKIES:
@@ -896,32 +878,37 @@ class Workday:
 
 
 def _click(page, element, *, timeout_ms: int = 4000) -> bool:
-    """Click something even when Workday is covering it with a click filter.
+    """Click what a person would click, even when an overlay owns the handler.
 
-    While the app validates a field or swaps a form it lays a transparent
-    role="button" overlay over the page called ``click_filter``. Playwright
-    refuses to click through another element, which is correct in general and
-    wrong here: the overlay is not something a person can act on. So try the
-    real click, give a transient overlay a moment to clear, try once more, and
-    finally dispatch a synthetic click — React listens at the document root, so
-    the handler still runs.
+    Workday hides the real ``<button>`` (``aria-hidden="true"``, ``tabindex="-2"``)
+    and puts a ``<div role="button" data-automation-id="click_filter">`` in front
+    of it. That div carries the handler; the button is a decoy. Playwright
+    refuses to click an element another element covers — correct in general, and
+    useless here — and a synthetic ``el.click()`` on the decoy does nothing at
+    all, silently. An earlier version "solved" this by deleting the overlay,
+    which deleted the only thing that could submit the form.
+
+    So: try the real click; if something covers it, click at the element's own
+    coordinates and let the page decide who receives it. That is what a human
+    click does, and the overlay is designed to receive it.
     """
     try:
         element.click(timeout=timeout_ms)
         return True
     except Exception:  # noqa: BLE001
         pass
+
     try:
-        page.wait_for_selector("[data-automation-id='click_filter']", state="hidden", timeout=3000)
+        element.scroll_into_view_if_needed(timeout=timeout_ms)
     except Exception:  # noqa: BLE001
         pass
     try:
-        element.click(timeout=timeout_ms)
-        return True
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        element.evaluate("el => el.click()")
+        box = element.bounding_box()
+        if box is None:
+            return False
+        x = box["x"] + box["width"] / 2
+        y = box["y"] + box["height"] / 2
+        page.mouse.click(x, y)
         return True
     except Exception:  # noqa: BLE001
         return False

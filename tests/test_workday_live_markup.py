@@ -170,21 +170,42 @@ def test_the_bot_trap_is_never_filled(site, page):
 
 OVERLAY = """
 <!doctype html><html><body>
-  <input data-automation-id="email" type="text">
-  <input data-automation-id="password" type="password">
-  <button data-automation-id="signInSubmitButton" type="button">Sign In</button>
-  <div data-automation-id="click_filter" role="button" aria-label="Sign In"
-       style="position:fixed;inset:0;z-index:9999;background:transparent"></div>
+  <style>
+    #slot { position: relative; width: 220px; height: 40px; }
+    #slot button { width: 220px; height: 40px; }
+    #slot .surface { position: absolute; inset: 0; z-index: 5; }
+  </style>
+  <form data-automation-id="signInFormo">
+    <input data-automation-id="email" type="text">
+    <input data-automation-id="password" type="password">
+    <div id="slot">
+      <!-- The live shape: the real button is a decoy. aria-hidden, out of tab
+           order, and with no handler of its own. -->
+      <button type="submit" data-automation-id="signInSubmitButton"
+              aria-hidden="true" tabindex="-2">Sign In</button>
+      <!-- The visible surface, which is what a person actually clicks. -->
+      <div class="surface" data-automation-id="click_filter" role="button"
+           aria-label="Sign In"></div>
+    </div>
+  </form>
   <script>
-    document.querySelector("[data-automation-id=signInSubmitButton]")
+    document.querySelector("form").addEventListener("submit", e => e.preventDefault());
+    document.querySelector("[data-automation-id=click_filter]")
       .addEventListener("click", () => location.href = "myinfo.html");
   </script>
 </body></html>
 """
 
 
-def test_a_click_filter_over_the_button_does_not_stop_the_run(site, page):
-    """Live M&G failure: the submit click was intercepted by click_filter."""
+def test_the_click_filter_is_the_button_and_must_not_be_removed(site, page):
+    """Live M&G failure, exactly.
+
+    The recorder showed zero requests, no error and no console message. The DOM
+    explained it: the submit button is `aria-hidden` and out of tab order, and a
+    `click_filter` div in front of it owns the handler. An earlier version
+    removed that div as an "overlay" and then clicked the decoy, which submits
+    nothing. Clicking at the element's coordinates lets the real surface take it.
+    """
     (site / "overlay.html").write_text(OVERLAY, encoding="utf-8")
     page.goto((site / "overlay.html").as_uri(), wait_until="domcontentloaded")
     status = fill.Workday().sign_in(page, email="candidate@example.com", password="hunter2")

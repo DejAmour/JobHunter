@@ -167,3 +167,36 @@ def test_saving_does_not_raise_when_the_page_is_gone(tmp_path):
     folder = trace.save(None, outcome="page already closed")
     assert folder.is_dir()
     assert (folder / "summary.txt").is_file()
+
+
+def test_a_password_in_the_saved_dom_is_masked(tmp_path, site, page):
+    """The first live trace wrote the account password into page.html.
+
+    A React-style controlled input reflects its value into the attribute, which
+    is how `value="..."` ended up on disk. Set it the same way here.
+    """
+    trace = evidence.Evidence(tmp_path / "trace", secrets=("hunter2!",))
+    trace.attach(page.context, page)
+    page.goto(site, wait_until="domcontentloaded")
+    page.evaluate(
+        "() => document.querySelector('#password').setAttribute('value', 'hunter2!')"
+    )
+    folder = trace.save(page, outcome="filled")
+
+    html = (folder / "page.html").read_text(encoding="utf-8")
+    assert "hunter2!" not in html
+    assert evidence.MASK in html
+
+
+def test_a_password_in_the_dom_is_masked_even_when_the_secret_is_unknown(tmp_path, site, page):
+    """Second belt: a password field is blanked whatever it holds."""
+    trace = evidence.Evidence(tmp_path / "trace")
+    trace.attach(page.context, page)
+    page.goto(site, wait_until="domcontentloaded")
+    page.evaluate(
+        "() => document.querySelector('#password').setAttribute('value', 'never-listed-9')"
+    )
+    folder = trace.save(page, outcome="filled")
+
+    html = (folder / "page.html").read_text(encoding="utf-8")
+    assert "never-listed-9" not in html

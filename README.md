@@ -45,6 +45,38 @@ Working today:
 Not yet: Ashby, Workable and SmartRecruiters fillers; Oracle HCM discovery;
 an answer-bank UI (the fact sheet is edited with `jobhunter facts`).
 
+## Accounts and passwords
+
+Employer accounts are per tenant: the same email and password at M&G will not
+work at abrdn. The email lives in `~/.jobhunter/accounts.toml` (gitignored); the
+password lives in the Windows Credential Manager and never in a file.
+
+```
+jobhunter account add --firm "M&G" --generate   # generate, store, show once
+jobhunter account show --firm "M&G"             # print it when you must type it
+jobhunter account export                        # CSV any manager can import
+```
+
+Generated passwords satisfy the rules the form prints, and avoid lookalike
+characters, because an account that locks sends you back to a reset form with a
+text field. The export is plaintext on purpose: import it into Bitwarden or
+KeePassXC, then delete it. The tool keeps using the credential store either way.
+
+## Reading your inbox
+
+Verification codes — and password-reset links when an account locks — arrive by
+email. `jobhunter mail setup` stores a Gmail *app password*
+(myaccount.google.com/apppasswords) in the same credential store.
+
+```
+jobhunter mail check                        # can this machine read the inbox?
+jobhunter mail link --firm "M&G" --open     # newest reset or verification link
+```
+
+It reads headers, the first text part and anchor hrefs, and never marks a
+message read. Without it nothing touches your mail: the browser waits for you to
+type the code or click the link yourself.
+
 ## Discovery
 
 ```
