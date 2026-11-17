@@ -17,26 +17,36 @@ playwright = pytest.importorskip("playwright.sync_api")
 
 WIDGETS = """
 <!doctype html><html><body>
-  <div role="group" aria-labelledby="previousWorker-section">
-    <div id="previousWorker-section">Are you a current or former worker?</div>
-    <div name="candidateIsPreviousWorker" aria-required="true">
-      <span id="radio-label6">Yes</span>
-      <input id="r1" type="radio" name="candidateIsPreviousWorker" value="true"
-             aria-labelledby="radio-label6">
-      <span id="radio-label7">No</span>
-      <input id="r2" type="radio" name="candidateIsPreviousWorker" value="false"
-             aria-labelledby="radio-label7">
+  <!-- the live radio shape: legend holds the question, each option text is a
+       sibling <label for>, and the input itself is invisible -->
+  <fieldset>
+    <legend><label id="radio-label1">Have you previously worked for this
+      organisation? If Yes, please answer the questions below.</label></legend>
+    <div name="candidateIsPreviousWorker" aria-labelledby="radio-label1" aria-required="true">
+      <div class="row">
+        <div class="dot">
+          <input id="chit6" type="radio" name="candidateIsPreviousWorker" value="true"
+                 style="opacity:0;position:absolute;width:24px;height:24px">
+        </div>
+        <label for="chit6">Yes</label>
+      </div>
+      <div class="row">
+        <div class="dot">
+          <input id="chit7" type="radio" name="candidateIsPreviousWorker" value="false"
+                 style="opacity:0;position:absolute;width:24px;height:24px">
+        </div>
+        <label for="chit7">No</label>
+      </div>
     </div>
-  </div>
+  </fieldset>
 
   <button aria-haspopup="listbox" type="button" value=""
           aria-label="How Did You Hear About Us? Select One Required"
           name="source" id="source--source">Select One</button>
-  <ul id="menu" role="listbox" style="display:none">
-    <li role="option">Internet</li>
-    <li role="option">Company Website</li>
-    <li role="option">LinkedIn</li>
+  <!-- far more options than fit: only a screenful is in the DOM until you scroll -->
+  <ul id="menu" role="listbox" style="display:none;height:80px;overflow-y:auto">
   </ul>
+  <style>#menu li { height: 40px; }</style>
 
   <button aria-haspopup="listbox" type="button" value=""
           aria-label="Prefix Select One Required"
@@ -53,18 +63,44 @@ WIDGETS = """
           name="country" id="country--country">United Kingdom</button>
 
   <script>
-    const open = (id, menu) => {
-      document.getElementById(id).addEventListener("click", () => {
-        document.getElementById(menu).style.display = "block";
-      });
-      document.getElementById(menu).addEventListener("click", (event) => {
-        if (event.target.tagName !== "LI") return;
-        document.getElementById(id).textContent = event.target.textContent;
-        document.getElementById(menu).style.display = "none";
-      });
+    const sources = [
+      "ADEM", "Black Professionals Scotland", "Bright Network",
+      "Career Fair or Exhibition", "Careers in Audit", "Company Website",
+      "Internet", "Job Board", "Other",
+    ];
+    const menu = document.getElementById("menu");
+    let shown = 0;
+    const grow = () => {
+      if (shown >= sources.length) return;
+      const stop = Math.min(shown + 4, sources.length);
+      for (let i = shown; i < stop; i += 1) {
+        const li = document.createElement("li");
+        li.setAttribute("role", "option");
+        li.textContent = sources[i];
+        menu.appendChild(li);
+      }
+      shown = stop;
     };
-    open("source--source", "menu");
-    open("name--legalName--title", "prefix-menu");
+    menu.addEventListener("scroll", grow);
+    document.getElementById("source--source").addEventListener("click", () => {
+      menu.style.display = "block";
+      grow();
+    });
+    menu.addEventListener("click", (event) => {
+      if (event.target.tagName !== "LI") return;
+      document.getElementById("source--source").textContent = event.target.textContent;
+      menu.style.display = "none";
+    });
+
+    const prefixMenu = document.getElementById("prefix-menu");
+    document.getElementById("name--legalName--title").addEventListener("click", () => {
+      prefixMenu.style.display = "block";
+    });
+    prefixMenu.addEventListener("click", (event) => {
+      if (event.target.tagName !== "LI") return;
+      document.getElementById("name--legalName--title").textContent = event.target.textContent;
+      prefixMenu.style.display = "none";
+    });
   </script>
 </body></html>
 """
@@ -111,9 +147,18 @@ def test_a_workday_dropdown_is_opened_and_an_option_chosen(widgets):
 def test_a_radio_group_is_answered_from_the_bank(widgets):
     report = fill.FillReport(url="", ats="workday")
     fill.Workday()._extras(widgets, ctx(previous_worker="No"), report)
-    assert widgets.is_checked("#r2") is True
-    assert widgets.is_checked("#r1") is False
-    assert "Are you a current or former worker?" in report.filled
+    assert widgets.is_checked("#chit7") is True
+    assert widgets.is_checked("#chit6") is False
+    assert any("previously worked" in entry for entry in report.filled)
+
+
+def test_a_virtualised_list_is_scrolled_until_the_choice_appears(widgets):
+    """"Company Website" is past the first screenful, so it must be scrolled to."""
+    fill._click(widgets, widgets.query_selector("#source--source"))
+    widgets.wait_for_timeout(400)
+    texts = fill.Workday()._all_option_texts(widgets)
+    assert "company website" in texts
+    assert len(texts) >= 6
 
 
 def test_an_already_answered_dropdown_is_not_touched(widgets):
@@ -138,8 +183,8 @@ def test_an_inexact_match_for_another_question_is_not_taken(widgets):
     """The closeness rule is scoped to the question, not to the dropdown."""
     report = fill.FillReport(url="", ats="workday")
     fill.Workday()._extras(widgets, ctx(previous_worker="Maybe"), report)
-    assert widgets.is_checked("#r1") is False
-    assert widgets.is_checked("#r2") is False
+    assert widgets.is_checked("#chit6") is False
+    assert widgets.is_checked("#chit7") is False
 
 
 def test_a_how_did_you_hear_question_takes_a_close_option(widgets):

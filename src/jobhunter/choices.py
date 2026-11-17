@@ -37,6 +37,9 @@ PREFERENCES: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
         (
             "company website",
             "company site",
+            "careers page",
+            "careers site",
+            "company careers",
             "our website",
             "employer website",
             "direct",

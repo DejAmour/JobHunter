@@ -235,7 +235,8 @@ RULES: tuple[tuple[re.Pattern[str], object], ...] = (
     ),
     (
         re.compile(
-            r"previous\s*worker|former\s*worker|worked (?:for|at) (?:us|this|the company)|"
+            r"previous\s*worker|former\s*worker|previously\s+worked|"
+            r"worked (?:for|at) (?:us|this|the company)|"
             r"current or former employee",
             re.I,
         ),

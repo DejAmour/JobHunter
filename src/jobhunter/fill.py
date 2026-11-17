@@ -136,8 +136,8 @@ class FillReport:
     def summary(self) -> str:
         lines = [f"{self.ats or 'unknown ats'}: {self.url}"]
         if self.error:
+            # Keep going: the filled/empty lists are usually what explains it.
             lines.append(f"  error: {self.error}")
-            return "\n".join(lines)
         lines.append(f"  filled:  {', '.join(self.filled) or 'nothing'}")
         if self.steps:
             lines.append(f"  steps:   {' -> '.join(self.steps)}")
@@ -372,7 +372,10 @@ class Workday:
                 "#firstName",
             ),
         ),
-        ("my-experience", ("[data-automation-id='workExperienceSection']", "#jobTitle")),
+        ("my-experience", ("[data-automation-id='workExperienceSection']",
+                           "[data-automation-id='file-upload-input-ref']",
+                           "[data-automation-id='select-files']",
+                           "#jobTitle")),
         # No bare "fieldset legend": every step of a Workday form can contain a
         # fieldset, so that matched My Information and made the wizard click
         # Next six times into a validation wall.
@@ -630,13 +633,21 @@ class Workday:
 
     @classmethod
     def _visible_options(cls, page):
-        """Every choice the open popup is offering, in document order."""
+        """Every choice the open popup is offering, in document order.
+
+        Scoped to the open listbox when there is one: the phone country picker
+        renders a `promptOption` of its own, and an unrelated "United Kingdom
+        (+44)" in the source list would be noise the resolver could match.
+        """
         candidates = []
-        for selector in ("[role='option']", "[data-automation-id='promptOption']"):
-            try:
-                candidates.extend(page.query_selector_all(selector))
-            except Exception:  # noqa: BLE001
-                continue
+        container = cls._option_container(page)
+        sources = [container] if container is not None else [page]
+        for scope in sources:
+            for selector in ("[role='option']", "[data-automation-id='promptOption']"):
+                try:
+                    candidates.extend(scope.query_selector_all(selector))
+                except Exception:  # noqa: BLE001
+                    continue
         visible = []
         for option in candidates:
             try:
@@ -645,8 +656,12 @@ class Workday:
                 # The selected-item pill is also role=option; it is not a choice.
                 if (option.get_attribute("data-automation-id") or "") == "selectedItem":
                     continue
-                if cls._option_text(option):
-                    visible.append(option)
+                # "Select One" is the placeholder, and is disabled on purpose.
+                if (option.get_attribute("aria-disabled") or "").lower() == "true":
+                    continue
+                if cls._option_text(option) in ("", "select one"):
+                    continue
+                visible.append(option)
             except Exception:  # noqa: BLE001
                 continue
         return visible
@@ -680,7 +695,7 @@ class Workday:
 
         _click(page, button)
         page.wait_for_timeout(800)
-        options = self._option_texts(page)
+        options = self._all_option_texts(page)
         picked = choices.choose(question, options, answer, tenant=tenant) if options else None
         if picked is None:
             # Leaving the popup open would cover the next field.
@@ -692,7 +707,7 @@ class Workday:
             return False
 
         option_text, reason = picked
-        element = self._option(page, option_text)
+        element = self._option_by_text(page, option_text)
         if element is None:
             try:
                 page.keyboard.press("Escape")
@@ -710,6 +725,82 @@ class Workday:
             if tenant:
                 choices.remember(tenant, question, option_text)
         return True
+
+    # --- a list too long to render at once -------------------------------
+    #
+    # "How Did You Hear About Us?" at M&G offers around a hundred sources, and
+    # Workday renders roughly the visible screenful. "Company Website" is not in
+    # the DOM until you scroll to it, so text matching over the current options
+    # finds nothing. Collect by scrolling, then scroll back to the choice.
+
+    @classmethod
+    def _option_container(cls, page):
+        for selector in (
+            "ul[role='listbox']:not([data-automation-id='selectedItemList'])",
+            "[role='listbox']:not([data-automation-id='selectedItemList'])",
+        ):
+            try:
+                for element in page.query_selector_all(selector):
+                    if not element.is_visible():
+                        continue
+                    if element.query_selector("[role='option']") is not None:
+                        return element
+            except Exception:  # noqa: BLE001
+                continue
+        return None
+
+    @staticmethod
+    def _scroll_options(page, container, *, to_top: bool = False) -> bool:
+        """Scroll the open list by a screenful. False when it is already at the end."""
+        try:
+            return bool(
+                page.evaluate(
+                    """([el, toTop]) => {
+                      if (toTop) { el.scrollTop = 0; return true; }
+                      const before = el.scrollTop;
+                      el.scrollTop = Math.min(
+                        el.scrollTop + Math.max(el.clientHeight * 0.8, 120),
+                        el.scrollHeight);
+                      return el.scrollTop !== before;
+                    }""",
+                    [container, to_top],
+                )
+            )
+        except Exception:  # noqa: BLE001
+            return False
+
+    @classmethod
+    def _all_option_texts(cls, page, limit: int = 80) -> list[str]:
+        container = cls._option_container(page)
+        texts: list[str] = []
+        seen: set[str] = set()
+        for _ in range(limit):
+            for option in cls._visible_options(page):
+                text = cls._option_text(option)
+                if text and text not in seen:
+                    seen.add(text)
+                    texts.append(text)
+            if container is None or not cls._scroll_options(page, container):
+                break
+            page.wait_for_timeout(150)
+        return texts
+
+    @classmethod
+    def _option_by_text(cls, page, wanted: str):
+        """Find an option by text, scrolling the virtualised list to reach it."""
+        target = " ".join((wanted or "").split()).lower()
+        container = cls._option_container(page)
+        if container is not None:
+            cls._scroll_options(page, container, to_top=True)
+            page.wait_for_timeout(150)
+        for _ in range(80):
+            for option in cls._visible_options(page):
+                if cls._option_text(option) == target:
+                    return option
+            if container is None or not cls._scroll_options(page, container):
+                return None
+            page.wait_for_timeout(150)
+        return None
 
     @staticmethod
     def _group_question(page, name: str) -> str:
@@ -750,18 +841,26 @@ class Workday:
                     """
                     ([name, wanted]) => {
                       const norm = (s) => (s || "").replace(/\\s+/g, " ").trim().toLowerCase();
-                      const radios = Array.from(
-                        document.querySelectorAll(`input[type=radio][name="${name}"]`));
-                      for (let index = 0; index < radios.length; index += 1) {
-                        const input = radios[index];
+                      const labelOf = (input) => {
+                        // A radio's option text is usually a sibling
+                        // <label for="id">, not an ancestor and not aria-labelledby.
+                        const labels = input.labels ? Array.from(input.labels) : [];
+                        const text = labels.map((el) => el.innerText || "").join(" ");
+                        if (text.trim()) return text;
                         const ids = (input.getAttribute("aria-labelledby") || "")
                           .split(/\\s+/).filter(Boolean);
                         for (const id of ids) {
                           const el = document.getElementById(id);
-                          if (el && norm(el.innerText) === norm(wanted)) return index;
+                          if (el && (el.innerText || "").trim()) return el.innerText;
                         }
-                        const label = input.closest("label");
-                        if (label && norm(label.innerText) === norm(wanted)) return index;
+                        const ancestor = input.closest("label");
+                        return ancestor ? ancestor.innerText : "";
+                      };
+                      const radios = Array.from(
+                        document.querySelectorAll(`input[type=radio][name="${name}"]`));
+                      for (let index = 0; index < radios.length; index += 1) {
+                        const input = radios[index];
+                        if (norm(labelOf(input)) === norm(wanted)) return index;
                       }
                       return -1;
                     }
@@ -775,9 +874,9 @@ class Workday:
     def _select_radio(self, page, name: str, wanted: str) -> bool:
         """Choose a radio option by its text, the way the widget expects.
 
-        The input is the control even when a styled element sits over it, so
-        check it first; if it is hidden behind that styling, click the element
-        that labels it, then the input's own coordinates.
+        At M&G the input is `opacity: 0` and its option text is a sibling
+        `<label for="...">`, so the label is the surface a person clicks. The
+        input is checked too, because some tenants style it differently.
         """
         index = self._radio_index(page, name, wanted)
         if index < 0:
@@ -789,38 +888,22 @@ class Workday:
         if index >= len(radios):
             return False
         radio = radios[index]
+
+        # 1. The label a person actually clicks.
         try:
-            radio.check(timeout=3000)
-            return True
+            radio_id = radio.get_attribute("id") or ""
+            if radio_id:
+                surface = page.query_selector(f"label[for='{radio_id}']")
+                if surface is not None and _click(page, surface):
+                    if radio.is_checked():
+                        return True
         except Exception:  # noqa: BLE001
             pass
+
+        # 2. The input itself.
         try:
-            label_id = page.evaluate(
-                """
-                ([name, wanted]) => {
-                  const norm = (s) => (s || "").replace(/\\s+/g, " ").trim().toLowerCase();
-                  const input = Array.from(
-                    document.querySelectorAll(`input[type=radio][name="${name}"]`))
-                    .find((el) => {
-                      const ids = (el.getAttribute("aria-labelledby") || "")
-                        .split(/\\s+/).filter(Boolean);
-                      return ids.some((id) => {
-                        const labelled = document.getElementById(id);
-                        return labelled && norm(labelled.innerText) === norm(wanted);
-                      });
-                    });
-                  if (!input) return "";
-                  const ids = (input.getAttribute("aria-labelledby") || "")
-                    .split(/\\s+/).filter(Boolean);
-                  return ids[0] || "";
-                }
-                """,
-                [name, wanted],
-            )
-            if label_id:
-                surface = page.query_selector(f"#{label_id}")
-                if surface is not None and _click(page, surface):
-                    return True
+            radio.check(timeout=2500)
+            return True
         except Exception:  # noqa: BLE001
             pass
         return _click(page, radio)
@@ -922,8 +1005,9 @@ class Workday:
             return
         element.set_input_files(path)
         # Workday parses the CV and fills the history with it; the parser is
-        # decent and wrong in places, which is why the review step exists.
-        page.wait_for_timeout(4000)
+        # decent and wrong in places, which is why the review step exists. On the
+        # live tenant the parse takes longer than a page transition does.
+        page.wait_for_timeout(8000)
         report.filled.append("resume")
 
     @staticmethod
@@ -945,6 +1029,19 @@ class Workday:
     COOKIES = (
         "[data-automation-id='legalNoticeAcceptButton']",
         "[data-automation-id='legalNoticeDeclineButton']",
+    )
+    # Once a draft exists, the job page offers Continue instead of Apply.
+    CONTINUE = (
+        "a[data-automation-id='continueButton']",
+        "[data-automation-id='continueButton']",
+    )
+    # Whichever route the shelf offers: manual first, because Autofill parses the
+    # CV into work history and those guesses are harder to check than an empty
+    # form, and "Use My Last Application" is closest to a filled one.
+    SHELF_ROUTES = (
+        "[data-automation-id='applyManually']",
+        "[data-automation-id='autofillWithResume']",
+        "[data-automation-id='useMyLastApplication']",
     )
     APPLY = (
         "a[data-automation-id='adventureButton']",
@@ -1013,14 +1110,24 @@ class Workday:
 
         self._dismiss_cookies(page)
 
+        # A draft that already exists is reached through Continue, not Apply.
+        resume = self._await(page, self.CONTINUE, 8_000)
+        if resume is not None:
+            _click(page, resume)
+            page.wait_for_timeout(3000)
+            reached = self._settle(page, wait_ms=3000)
+            if reached:
+                return reached
+
         apply_button = self._await(page, self.APPLY, timeout_ms)
         if apply_button is not None:
             _click(page, apply_button)
             page.wait_for_timeout(1500)
 
-        # The shelf: prefer the manual route. Autofill parses the CV into work
-        # history, and its guesses are harder to check than an empty form.
+        # The shelf: prefer the manual route.
         manual = self._await(page, self.APPLY_MANUALLY, 20_000)
+        if manual is None:
+            manual = self._await(page, self.SHELF_ROUTES, 6_000)
         if manual is not None:
             _click(page, manual)
             page.wait_for_timeout(2500)
