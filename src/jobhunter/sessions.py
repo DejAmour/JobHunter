@@ -122,8 +122,11 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
             found = mailbox.latest_code(config, since=started, wait_seconds=120)
             return found.value if found else ""
 
+    # No saved session means no account here yet, so create rather than guess.
+    create = create or not target.is_file()
+
     print(f"{account.firm}: {account.email}")
-    print("signing in" if not create else "creating the account")
+    print("creating the account" if create else "signing in")
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=False)
@@ -142,6 +145,14 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
                 page, email=account.email, password=password, create=create, on_code=on_code
             )
             print(f"  {status}")
+
+            # An account may already exist from an earlier attempt; that is a
+            # success with a different door, not a failure.
+            if status.startswith("failed: an account already exists"):
+                status = workday.sign_in(
+                    page, email=account.email, password=password, create=False, on_code=on_code
+                )
+                print(f"  {status}")
 
             if status == "code-needed":
                 print("\nWorkday wants to verify your email — a code, and sometimes a link.")

@@ -692,9 +692,7 @@ class Workday:
         submit = self._clickable(page, fields["submit"])
         if submit is None:
             return "failed: no submit button on the account form"
-        if not _click(page, submit):
-            return "failed: the submit button would not accept a click"
-        page.wait_for_timeout(wait_ms + 2500)
+        self._submit_until_it_moves(page, submit, password_field, wait_ms=wait_ms)
 
         code_field = self._code_field(page)
         if code_field is not None:
@@ -712,8 +710,7 @@ class Workday:
             if submit is None:
                 submit = self._clickable(page, ("[data-automation-id='verifyButton']",))
             if submit is not None:
-                _click(page, submit)
-                page.wait_for_timeout(wait_ms + 2500)
+                self._submit_until_it_moves(page, submit, code_field, wait_ms=wait_ms)
 
         if self._settle(page) in ("create-account", "sign-in"):
             complaint = self._text_of(page, self.ERROR)
@@ -740,6 +737,61 @@ class Workday:
         return any(phrase in text for phrase in phrases)
 
     # --- selector plumbing ------------------------------------------------
+
+    def _submit_until_it_moves(self, page, button, password_field, *, wait_ms: int = 2500) -> None:
+        """Press submit, and check the page actually did something.
+
+        Measured on the live tenant: a click can be reported as delivered while
+        the form sits there untouched, password field still focused and no error
+        shown. So: clear the overlay, click, watch for progress; if nothing
+        moved, press Enter in the password field — which is what a person would
+        do, and which no overlay can intercept; then click once more.
+        """
+        self._clear_overlays(page)
+        _click(page, button)
+        if self._wait_for_progress(page, 4.0):
+            return
+
+        self._clear_overlays(page)
+        try:
+            password_field.press("Enter")
+        except Exception:  # noqa: BLE001
+            pass
+        if self._wait_for_progress(page, 4.0):
+            return
+
+        self._clear_overlays(page)
+        _click(page, button)
+        page.wait_for_timeout(wait_ms)
+
+    def _progressed(self, page) -> bool:
+        """Has the account form been left behind, or has it complained?"""
+        if self.step(page) not in ("create-account", "sign-in"):
+            return True
+        return bool(self._text_of(page, self.ERROR))
+
+    def _wait_for_progress(self, page, seconds: float) -> bool:
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if self._progressed(page):
+                return True
+            page.wait_for_timeout(400)
+        return self._progressed(page)
+
+    @staticmethod
+    def _clear_overlays(page) -> None:
+        """Remove Workday's transparent click blockers.
+
+        They are not content and not clickable by a person; leaving one in place
+        is what made a whole run fail on a click that was never delivered.
+        """
+        try:
+            page.evaluate(
+                """() => document.querySelectorAll(
+                     '[data-automation-id="click_filter"]').forEach(el => el.remove())"""
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     def _dismiss_cookies(self, page) -> None:
         for selector in self.COOKIES:

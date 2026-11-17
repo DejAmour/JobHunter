@@ -192,6 +192,31 @@ def test_a_click_filter_over_the_button_does_not_stop_the_run(site, page):
     assert page.url.endswith("myinfo.html")
 
 
+DEAD_CLICK = """
+<!doctype html><html><body>
+  <input data-automation-id="email" type="text">
+  <input data-automation-id="password" type="password">
+  <!-- a click here is swallowed: reported as delivered, does nothing -->
+  <button data-automation-id="signInSubmitButton" type="button">Sign In</button>
+  <script>
+    const password = document.querySelector("[data-automation-id=password]");
+    password.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") location.href = "myinfo.html";
+    });
+  </script>
+</body></html>
+"""
+
+
+def test_a_swallowed_submit_click_falls_back_to_enter(site, page):
+    """Live M&G failure: the click landed, the form did not move, no error shown."""
+    (site / "dead.html").write_text(DEAD_CLICK, encoding="utf-8")
+    page.goto((site / "dead.html").as_uri(), wait_until="domcontentloaded")
+    status = fill.Workday().sign_in(page, email="jeddahlke@gmail.com", password="hunter2")
+    assert status == "signed-in"
+    assert page.url.endswith("myinfo.html")
+
+
 def test_the_wizard_runs_the_whole_way_to_my_information(site, page):
     page.goto((site / "apply.html").as_uri(), wait_until="domcontentloaded")
     report = fill.Workday().fill(
