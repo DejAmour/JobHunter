@@ -506,6 +506,7 @@ class Workday:
 
             if step == "my-information":
                 self._fields(page, data, report)
+                self._extras(page, ctx, report)
             elif step == "my-experience":
                 self._resume(page, data, report)
             elif step == "questions":
@@ -567,6 +568,257 @@ class Workday:
             return [str(label) for label in labels]
         except Exception:  # noqa: BLE001
             return []
+
+    # --- Workday's custom widgets -----------------------------------------
+    #
+    # A dropdown here is not a <select>: it is a
+    # <button aria-haspopup="listbox"> that opens a role=listbox popup. A radio
+    # group's question text lives in a div's aria-labelledby, and its options are
+    # labelled by id, not by a <label for>. Filling either with .fill() does
+    # nothing at all, which is how My Information stalled on four required
+    # controls while every text field was already correct.
+
+    @staticmethod
+    def _clean_label(text: str) -> str:
+        cleaned = " ".join((text or "").split())
+        for suffix in (" Required", " Select One", " Select One Required"):
+            while cleaned.lower().endswith(suffix.strip().lower()):
+                cleaned = cleaned[: -len(suffix.strip())].strip()
+        return cleaned
+
+    @classmethod
+    def _dropdown_buttons(cls, page):
+        """The unset Workday dropdowns: no value yet, and not a nav menu."""
+        found = []
+        for button in page.query_selector_all("button[aria-haspopup='listbox']"):
+            try:
+                if not button.is_visible():
+                    continue
+                if (button.get_attribute("value") or "").strip():
+                    continue
+                if (button.get_attribute("data-automation-id") or "") == "utilityMenuButton":
+                    continue
+                if not (button.get_attribute("aria-label") or "").strip():
+                    continue
+                found.append(button)
+            except Exception:  # noqa: BLE001
+                continue
+        return found
+
+    @classmethod
+    def _option(cls, page, wanted: str):
+        """The visible popup option that best matches, or None."""
+        target = wanted.strip().lower()
+        if not target:
+            return None
+        candidates = []
+        for selector in ("[role='option']", "[data-automation-id='promptOption']"):
+            try:
+                candidates.extend(page.query_selector_all(selector))
+            except Exception:  # noqa: BLE001
+                continue
+        visible = []
+        for option in candidates:
+            try:
+                if not option.is_visible():
+                    continue
+                # The selected-item pill is also role=option; it is not a choice.
+                if (option.get_attribute("data-automation-id") or "") == "selectedItem":
+                    continue
+                visible.append(option)
+            except Exception:  # noqa: BLE001
+                continue
+
+        def text_of(option) -> str:
+            try:
+                return " ".join((option.inner_text() or "").split()).lower()
+            except Exception:  # noqa: BLE001
+                return ""
+
+        for matcher in (
+            lambda text: text == target,
+            lambda text: text.startswith(target),
+            lambda text: target in text,
+        ):
+            for option in visible:
+                if matcher(text_of(option)):
+                    return option
+        return None
+
+    def _dropdown(self, page, button, value: str) -> bool:
+        _click(page, button)
+        page.wait_for_timeout(800)
+        option = self._option(page, value)
+        if option is None:
+            # Leaving the popup open would cover the next field.
+            try:
+                page.keyboard.press("Escape")
+            except Exception:  # noqa: BLE001
+                pass
+            page.wait_for_timeout(300)
+            return False
+        _click(page, option)
+        page.wait_for_timeout(600)
+        return True
+
+    @staticmethod
+    def _group_question(page, name: str) -> str:
+        try:
+            return (
+                page.evaluate(
+                    """
+                    (name) => {
+                      const input = document.querySelector(`input[type=radio][name="${name}"]`);
+                      if (!input) return "";
+                      const group = input.closest("[role=group]") || input.closest("fieldset");
+                      const text = (el) => (el ? (el.innerText || "").trim() : "");
+                      if (group) {
+                        const id = group.getAttribute("aria-labelledby");
+                        if (id) {
+                          const labelled = document.getElementById(id);
+                          if (labelled && text(labelled)) return text(labelled);
+                        }
+                        const legend = group.querySelector("legend");
+                        if (text(legend)) return text(legend);
+                      }
+                      return "";
+                    }
+                    """,
+                    name,
+                )
+                or ""
+            )
+        except Exception:  # noqa: BLE001
+            return ""
+
+    @staticmethod
+    def _radio_index(page, name: str, wanted: str) -> int:
+        """Index of the radio in this group whose option text is wanted, or -1."""
+        try:
+            return int(
+                page.evaluate(
+                    """
+                    ([name, wanted]) => {
+                      const norm = (s) => (s || "").replace(/\\s+/g, " ").trim().toLowerCase();
+                      const radios = Array.from(
+                        document.querySelectorAll(`input[type=radio][name="${name}"]`));
+                      for (let index = 0; index < radios.length; index += 1) {
+                        const input = radios[index];
+                        const ids = (input.getAttribute("aria-labelledby") || "")
+                          .split(/\\s+/).filter(Boolean);
+                        for (const id of ids) {
+                          const el = document.getElementById(id);
+                          if (el && norm(el.innerText) === norm(wanted)) return index;
+                        }
+                        const label = input.closest("label");
+                        if (label && norm(label.innerText) === norm(wanted)) return index;
+                      }
+                      return -1;
+                    }
+                    """,
+                    [name, wanted],
+                )
+            )
+        except Exception:  # noqa: BLE001
+            return -1
+
+    def _select_radio(self, page, name: str, wanted: str) -> bool:
+        """Choose a radio option by its text, the way the widget expects.
+
+        The input is the control even when a styled element sits over it, so
+        check it first; if it is hidden behind that styling, click the element
+        that labels it, then the input's own coordinates.
+        """
+        index = self._radio_index(page, name, wanted)
+        if index < 0:
+            return False
+        try:
+            radios = page.query_selector_all(f"input[type=radio][name='{name}']")
+        except Exception:  # noqa: BLE001
+            return False
+        if index >= len(radios):
+            return False
+        radio = radios[index]
+        try:
+            radio.check(timeout=3000)
+            return True
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            label_id = page.evaluate(
+                """
+                ([name, wanted]) => {
+                  const norm = (s) => (s || "").replace(/\\s+/g, " ").trim().toLowerCase();
+                  const input = Array.from(
+                    document.querySelectorAll(`input[type=radio][name="${name}"]`))
+                    .find((el) => {
+                      const ids = (el.getAttribute("aria-labelledby") || "")
+                        .split(/\\s+/).filter(Boolean);
+                      return ids.some((id) => {
+                        const labelled = document.getElementById(id);
+                        return labelled && norm(labelled.innerText) === norm(wanted);
+                      });
+                    });
+                  if (!input) return "";
+                  const ids = (input.getAttribute("aria-labelledby") || "")
+                    .split(/\\s+/).filter(Boolean);
+                  return ids[0] || "";
+                }
+                """,
+                [name, wanted],
+            )
+            if label_id:
+                surface = page.query_selector(f"#{label_id}")
+                if surface is not None and _click(page, surface):
+                    return True
+        except Exception:  # noqa: BLE001
+            pass
+        return _click(page, radio)
+
+    def _extras(self, page, ctx, report) -> None:
+        """Answer the dropdowns and radio groups on My Information."""
+        from . import questions
+
+        if ctx is None:
+            return
+
+        for button in self._dropdown_buttons(page):
+            try:
+                label = self._clean_label(button.get_attribute("aria-label") or "")
+                answer = questions.answer_for(label, ctx)
+                if answer is None or not answer.value:
+                    report.empty_answers.append(label or "a dropdown")
+                    continue
+                if self._dropdown(page, button, answer.value):
+                    report.filled.append(label)
+                else:
+                    report.empty_answers.append(f"{label} (no option for {answer.value!r})")
+            except Exception:  # noqa: BLE001
+                report.empty_answers.append("a dropdown that would not open")
+
+        try:
+            names = page.evaluate(
+                """
+                () => Array.from(new Set(
+                  Array.from(document.querySelectorAll("input[type=radio]"))
+                    .filter(el => el.name && el.offsetParent !== null)
+                    .map(el => el.name)))
+                """
+            )
+        except Exception:  # noqa: BLE001
+            return
+
+        for name in names or []:
+            question = self._group_question(page, name) or name
+            answer = questions.answer_for(question, ctx)
+            if answer is None or not answer.value:
+                report.empty_answers.append(question)
+                continue
+            choice = self._select_radio(page, name, answer.value)
+            if not choice:
+                report.empty_answers.append(f"{question} (no option for {answer.value!r})")
+                continue
+            report.filled.append(question)
 
     def _fields(self, page, data, report):
         for key, selector in self.FIELDS.items():

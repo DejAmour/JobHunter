@@ -224,6 +224,24 @@ RULES: tuple[tuple[re.Pattern[str], object], ...] = (
         lambda label, ctx: _from_bank(ctx, "how_did_you_hear", "no source recorded"),
     ),
     (
+        # "Title" alone is a job title far more often than a salutation, so the
+        # prefix rule is anchored rather than loose.
+        re.compile(r"\bprefix\b|\bsalutation\b|^\s*title\s*$", re.I),
+        lambda label, ctx: _from_bank(ctx, "prefix", "no prefix or salutation recorded"),
+    ),
+    (
+        re.compile(r"phone (?:device )?type|device type", re.I),
+        lambda label, ctx: _from_bank(ctx, "phone_device_type", "no phone device type recorded"),
+    ),
+    (
+        re.compile(
+            r"previous\s*worker|former\s*worker|worked (?:for|at) (?:us|this|the company)|"
+            r"current or former employee",
+            re.I,
+        ),
+        lambda label, ctx: _from_bank(ctx, "previous_worker", "no answer for former employment"),
+    ),
+    (
         re.compile(r"linkedin|profile url|website|portfolio|github", re.I),
         lambda label, ctx: _from_bank(ctx, "linkedin", "no profile URL in the answer bank"),
     ),
