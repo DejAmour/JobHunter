@@ -341,7 +341,17 @@ class Workday:
     name = "workday"
 
     STEP_MARKERS = (
-        ("sign-in", ("[data-automation-id='signInPage']", "input[data-automation-id='signInEmail']", "#signInPage")),
+        # Create Account and Sign In are one page, two forms, so order matters.
+        ("create-account", ("[data-automation-id='createAccountSubmitButton']",)),
+        (
+            "sign-in",
+            (
+                "[data-automation-id='signInSubmitButton']",
+                "[data-automation-id='signInPage']",
+                "input[data-automation-id='signInEmail']",
+                "#signInPage",
+            ),
+        ),
         ("my-information", ("[data-automation-id='legalNameSection_firstName']", "#firstName")),
         ("my-experience", ("[data-automation-id='workExperienceSection']", "#jobTitle")),
         ("questions", ("[data-automation-id='applicationQuestions']", "fieldset legend")),
@@ -365,10 +375,13 @@ class Workday:
     NEXT = "[data-automation-id='pageFooterNextButton'], button[data-action='continue']"
 
     def step(self, page) -> str:
+        """Which step is showing. Visible only: Workday keeps hidden templates
+        for other steps in the DOM, and a hidden one is not the page you are on."""
         for name, selectors in self.STEP_MARKERS:
             for selector in selectors:
                 try:
-                    if page.query_selector(selector) is not None:
+                    element = page.query_selector(selector)
+                    if element is not None and element.is_visible():
                         return name
                 except Exception:  # noqa: BLE001
                     continue
@@ -398,15 +411,15 @@ class Workday:
         report = FillReport(url=page.url, ats=self.name)
         data = values.as_dict()
 
-        # Before any of the five steps there is a job page with an Apply button.
-        if not self.step(page) and self._clickable(page, self.APPLY) is not None:
-            self.start(page)
+        # From a job posting: accept cookies, Apply, Apply Manually, then step 1.
+        # A page that is already a form returns immediately.
+        self.prepare(page)
 
         for _ in range(max(1, steps)):
             step = self._settle(page)
             report.steps.append(step or "unknown")
 
-            if step == "sign-in":
+            if step in ("sign-in", "create-account"):
                 if not email:
                     report.error = (
                         "sign-in required: register this employer once with "
@@ -517,96 +530,108 @@ class Workday:
             return None
 
     # --- getting through the account wall ---------------------------------
+    #
+    # Written against the live M&G tenant, which is a Workday 2024 release:
+    # Apply is an <a> that opens a shelf (Autofill with Resume / Apply Manually /
+    # Use My Last Application), Apply Manually lands on step 1 of 6 — Create
+    # Account — and "Sign In" is a button on that same form, not a separate page.
+    #
+    # Every selector is a list because ids drift between tenants and releases.
 
-    # Workday ids drift between tenants and releases, so every entry is a list
-    # of candidates: the documented automation id first, then older ids, then a
-    # plain type or name selector.
-    SIGN_IN = {
-        "email": (
-            "input[data-automation-id='email']",
-            "input[data-automation-id='signInEmail']",
-            "#signInEmail",
-            "input[type='email']",
-        ),
-        "password": (
-            "input[data-automation-id='password']",
-            "input[data-automation-id='signInPassword']",
-            "#signInPassword",
-            "input[type='password']",
-        ),
-        "submit": (
-            "[data-automation-id='signInButton']",
-            "[data-automation-id='signInSubmitButton']",
-            "button[type='submit']",
-        ),
-        "create": (
-            "[data-automation-id='createAccountLink']",
-            "a[data-automation-id='createAccount']",
-            "button[data-automation-id='createAccount']",
-        ),
-        "verify": (
-            "input[data-automation-id='verifyPassword']",
-            "#verifyPassword",
-            "input[name='verifyPassword']",
-        ),
-        "terms": (
-            "input[data-automation-id='createAccountCheckbox']",
-            "input[name='termsAccepted']",
-            "input[type='checkbox']",
-        ),
-        "create_submit": (
-            "[data-automation-id='createAccountSubmitButton']",
-            "[data-automation-id='createAccountButton']",
-        ),
-        "code": (
-            "input[data-automation-id='verificationCode']",
-            "#verificationCode",
-            "input[name='verificationCode']",
-            "input[autocomplete='one-time-code']",
-        ),
-        "code_submit": (
-            "[data-automation-id='verifyButton']",
-            "[data-automation-id='submitVerificationCode']",
-            "[data-automation-id='continueButton']",
-        ),
-        "error": (
-            "[data-automation-id='errorMessage']",
-            "[data-automation-id='signInError']",
-            "[role='alert']",
-            ".error",
-        ),
-    }
-
-    # The first two clicks of a Workday application, before there is any account.
+    COOKIES = (
+        "[data-automation-id='legalNoticeAcceptButton']",
+        "[data-automation-id='legalNoticeDeclineButton']",
+    )
     APPLY = (
+        "a[data-automation-id='adventureButton']",
         "[data-automation-id='adventureButton']",
-        "a[data-automation-id='applyButton']",
         "button[data-automation-id='applyButton']",
     )
     APPLY_MANUALLY = (
-        "[data-automation-id='applyManually']",
         "a[data-automation-id='applyManually']",
-        "button[data-automation-id='applyManually']",
-    )
-    AUTOFILL = (
-        "[data-automation-id='autofillWithResume']",
-        "button[data-automation-id='autofillWithResume']",
+        "[data-automation-id='applyManually']",
     )
 
-    def start(self, page, *, wait_ms: int = 1500) -> bool:
-        """Click Apply, then choose the manual route. True if anything was clicked."""
-        clicked = False
-        for selectors in (self.APPLY, self.APPLY_MANUALLY, self.AUTOFILL):
-            button = self._clickable(page, selectors)
-            if button is None:
-                continue
+    CREATE = {
+        "email": ("input[data-automation-id='email']", "#email"),
+        "password": ("input[data-automation-id='password']", "#password"),
+        "verify": ("input[data-automation-id='verifyPassword']", "#verifyPassword"),
+        "terms": ("input[data-automation-id='createAccountCheckbox']",),
+        "submit": (
+            "button[data-automation-id='createAccountSubmitButton']",
+            "[data-automation-id='createAccountSubmitButton']",
+        ),
+    }
+    SIGNIN = {
+        "email": ("input[data-automation-id='email']", "#email"),
+        "password": ("input[data-automation-id='password']", "#password"),
+        "submit": (
+            "button[data-automation-id='signInSubmitButton']",
+            "[data-automation-id='signInSubmitButton']",
+            "[data-automation-id='signInButton']",
+        ),
+    }
+    # The two forms are one page with a toggle between them.
+    TO_SIGNIN = ("[data-automation-id='signInLink']",)
+    TO_CREATE = (
+        "button[data-automation-id='createAccountLink']",
+        "[data-automation-id='createAccountLink']",
+    )
+    CODE = (
+        "input[data-automation-id='verificationCode']",
+        "input[data-automation-id='verifyCode']",
+        "input[autocomplete='one-time-code']",
+        "#verificationCode",
+        "input[name='verificationCode']",
+    )
+    ERROR = (
+        "[data-automation-id='errorMessage']",
+        "[data-automation-id='inputAlert']",
+        "[data-automation-id*='rror']",
+        "[role='alert']",
+    )
+
+    # A field that exists only to catch bots: one pixel tall, named "website",
+    # labelled "for robots only". Filling it flags the application, so every
+    # path that writes to a field has to refuse it.
+    HONEYPOT_IDS = ("beecatcher",)
+
+    def prepare(self, page, *, timeout_ms: int = 45_000) -> str:
+        """Get from the job posting to the first form, and report which one.
+
+        Returns the step name, or '' if the page never became a form. Accepts the
+        cookie banner on the way, because it deliberately covers the Apply
+        button's hit area.
+        """
+        step = self.step(page)
+        if step:
+            return step
+
+        self._dismiss_cookies(page)
+
+        apply_button = self._await(page, self.APPLY, timeout_ms)
+        if apply_button is not None:
             try:
-                button.click()
-                page.wait_for_timeout(wait_ms)
-                clicked = True
+                apply_button.click()
             except Exception:  # noqa: BLE001
-                continue
-        return clicked
+                page.evaluate("el => el.click()", apply_button)
+            page.wait_for_timeout(1500)
+
+        # The shelf: prefer the manual route. Autofill parses the CV into work
+        # history, and its guesses are harder to check than an empty form.
+        manual = self._await(page, self.APPLY_MANUALLY, 20_000)
+        if manual is not None:
+            try:
+                manual.click()
+            except Exception:  # noqa: BLE001
+                page.evaluate("el => el.click()", manual)
+            page.wait_for_timeout(2500)
+
+        return self._settle(page, wait_ms=3000)
+
+    def start(self, page, **kwargs) -> str:
+        """Kept for callers that predate the name; it prepares the first form."""
+        return self.prepare(page, **kwargs)
 
     def sign_in(
         self,
@@ -617,56 +642,66 @@ class Workday:
         create: bool = False,
         verification: str = "",
         on_code=None,
-        wait_ms: int = 3000,
+        wait_ms: int = 2500,
     ) -> str:
         """Join the account wall, or climb it.
 
-        Returns one of ``signed-in``, ``created``, ``code-needed``, ``bad-password``
-        or ``failed: <what Workday said>``. It never creates an account unless
-        asked, because doing so by accident leaves a trail of dead logins at
-        employers that share a tenant with the one you wanted.
+        Returns ``signed-in``, ``created``, ``code-needed``, ``bad-password`` or
+        ``failed: <what the page said>``. It only creates an account when asked:
+        a stray account at an employer is a dead login to explain later.
         """
         if not email or not password:
             return "failed: no stored account for this employer"
 
+        step = self._settle(page)
+
+        # Both forms can be on the page at once with one hidden behind a toggle,
+        # so the test is "is the submit visible", not "which step name is this".
         if create:
-            link = self._clickable(page, self.SIGN_IN["create"])
-            if link is not None:
-                link.click()
+            if self._clickable(page, self.CREATE["submit"]) is None:
+                toggle = self._clickable(page, self.TO_CREATE)
+                if toggle is None:
+                    return "failed: no Create Account form on this page"
+                toggle.click()
                 page.wait_for_timeout(wait_ms)
+            fields = self.CREATE
+            outcome = "created"
+        else:
+            if step != "sign-in" and self._clickable(page, self.SIGNIN["submit"]) is None:
+                toggle = self._clickable(page, self.TO_SIGNIN)
+                if toggle is None:
+                    return "failed: no Sign In form on this page"
+                toggle.click()
+                page.wait_for_timeout(wait_ms)
+            fields = self.SIGNIN
+            outcome = "signed-in"
 
-        field = self._editable(page, self.SIGN_IN["email"])
-        if field is not None:
-            _type(field, email)
-
-        secret = self._editable(page, self.SIGN_IN["password"])
-        if secret is not None:
-            _type(secret, password)
+        email_field = self._editable(page, fields["email"])
+        password_field = self._editable(page, fields["password"])
+        if email_field is None or password_field is None:
+            return "failed: the account form has no email or password field"
+        _type(email_field, email)
+        _type(password_field, password)
 
         if create:
-            confirm = self._editable(page, self.SIGN_IN["verify"])
+            confirm = self._editable(page, self.CREATE["verify"])
             if confirm is not None:
                 _type(confirm, password)
-            terms = self._first(page, self.SIGN_IN["terms"])
+            terms = self._clickable(page, self.CREATE["terms"])
             if terms is not None:
                 try:
                     if not terms.is_checked():
                         terms.check()
                 except Exception:  # noqa: BLE001
                     pass
-            button = self._clickable(page, self.SIGN_IN["create_submit"]) or self._clickable(
-                page, self.SIGN_IN["submit"]
-            )
-        else:
-            button = self._clickable(page, self.SIGN_IN["submit"])
 
-        if button is None:
-            return "failed: no sign-in button on the page"
-        button.click()
-        page.wait_for_timeout(wait_ms + 1500)
+        submit = self._clickable(page, fields["submit"])
+        if submit is None:
+            return "failed: no submit button on the account form"
+        submit.click()
+        page.wait_for_timeout(wait_ms + 2500)
 
-        # A verification code means the account exists but the mailbox owns it.
-        code_field = self._editable(page, self.SIGN_IN["code"])
+        code_field = self._code_field(page)
         if code_field is not None:
             code = ""
             if on_code is not None:
@@ -676,22 +711,89 @@ class Workday:
             if not code:
                 return "code-needed"
             _type(code_field, code)
-            submit = self._clickable(page, self.SIGN_IN["code_submit"]) or self._clickable(
-                page, self.SIGN_IN["submit"]
+            submit = self._clickable(page, self.CREATE["submit"]) or self._clickable(
+                page, self.SIGNIN["submit"]
             )
+            if submit is None:
+                submit = self._clickable(page, ("[data-automation-id='verifyButton']",))
             if submit is not None:
                 submit.click()
-                page.wait_for_timeout(wait_ms + 1500)
+                page.wait_for_timeout(wait_ms + 2500)
 
-        if self.step(page) == "sign-in":
-            complaint = self._text_of(page, self.SIGN_IN["error"])
+        if self._settle(page) in ("create-account", "sign-in"):
+            complaint = self._text_of(page, self.ERROR)
             lowered = complaint.lower()
             if "incorrect" in lowered or "invalid" in lowered or "password" in lowered:
                 return "bad-password"
-            return f"failed: {complaint or 'still on the sign-in page'}"
-        return "created" if create else "signed-in"
+            if "already" in lowered and "account" in lowered:
+                return "failed: an account already exists for this email — sign in instead"
+            return f"failed: {complaint or 'still on the account form'}"
+
+        # Some tenants do not ask for a code at all: they send a link. Either
+        # way the account is not usable until a human has been to their inbox,
+        # so say so instead of claiming success.
+        if self._page_says(page, ("check your email", "verify your email", "we have sent", "we sent")):
+            return "code-needed"
+        return outcome
+
+    @staticmethod
+    def _page_says(page, phrases) -> bool:
+        try:
+            text = (page.inner_text("body") or "").lower()
+        except Exception:  # noqa: BLE001
+            return False
+        return any(phrase in text for phrase in phrases)
 
     # --- selector plumbing ------------------------------------------------
+
+    def _dismiss_cookies(self, page) -> None:
+        for selector in self.COOKIES:
+            try:
+                button = page.query_selector(selector)
+                if button is not None and button.is_visible():
+                    button.click(timeout=4000)
+                    page.wait_for_timeout(500)
+                    return
+            except Exception:  # noqa: BLE001
+                continue
+
+    @staticmethod
+    def _await(page, selectors, timeout_ms: int):
+        """First of these that becomes visible, sharing the budget between them."""
+        remaining = timeout_ms
+        for selector in selectors:
+            if remaining <= 0:
+                return None
+            try:
+                return page.wait_for_selector(selector, timeout=remaining, state="visible")
+            except Exception:  # noqa: BLE001
+                remaining = max(1000, remaining // 2)
+        return None
+
+    def _code_field(self, page):
+        for selector in self.CODE:
+            try:
+                for element in page.query_selector_all(selector):
+                    if element.is_visible() and not self._is_honeypot(element):
+                        return element
+            except Exception:  # noqa: BLE001
+                continue
+        return None
+
+    @staticmethod
+    def _is_honeypot(element) -> bool:
+        try:
+            if element.get_attribute("data-automation-id") in Workday.HONEYPOT_IDS:
+                return True
+            label = (element.get_attribute("aria-label") or "").lower()
+            if "robots only" in label or "do not enter" in label:
+                return True
+            box = element.bounding_box()
+            if box is not None and (box["height"] < 2 or box["width"] < 2):
+                return True
+        except Exception:  # noqa: BLE001
+            return True
+        return False
 
     @staticmethod
     def _first(page, selectors) -> object | None:
@@ -708,8 +810,11 @@ class Workday:
     def _editable(cls, page, selectors):
         for selector in selectors:
             try:
-                element = page.query_selector(selector)
-                if element is not None and element.is_visible() and element.is_enabled():
+                for element in page.query_selector_all(selector):
+                    if not element.is_visible() or not element.is_enabled():
+                        continue
+                    if cls._is_honeypot(element):
+                        continue
                     return element
             except Exception:  # noqa: BLE001
                 continue
@@ -719,9 +824,9 @@ class Workday:
     def _clickable(cls, page, selectors):
         for selector in selectors:
             try:
-                element = page.query_selector(selector)
-                if element is not None and element.is_visible():
-                    return element
+                for element in page.query_selector_all(selector):
+                    if element.is_visible() and not cls._is_honeypot(element):
+                        return element
             except Exception:  # noqa: BLE001
                 continue
         return None
@@ -748,6 +853,8 @@ def _type(element, value: str) -> None:
     the input event React listens for, and the keystrokes cover the components
     that only listen to those.
     """
+    if (element.get_attribute("data-automation-id") or "") in Workday.HONEYPOT_IDS:
+        raise ValueError("refusing to type into Workday's bot-catcher field")
     try:
         element.click()
         element.fill("")
@@ -779,6 +886,13 @@ def fill_questions(page, ctx, selector: str, report: FillReport) -> None:
         name = element.get_attribute("name") or element.get_attribute("id") or ""
         widget = questions.widget_of(element)
         if widget in ("hidden", "submit", "button", "file"):
+            continue
+        # Workday plants a one-pixel field called "website" to catch bots. Its
+        # aria-label says so; filling it is the one mistake that loses the whole
+        # application, so nothing here ever writes to it.
+        if element.get_attribute("data-automation-id") in Workday.HONEYPOT_IDS:
+            continue
+        if "robots only" in (element.get_attribute("aria-label") or "").lower():
             continue
         # One pass per radio group, keyed by name.
         if widget == "radio":
@@ -946,10 +1060,12 @@ def run(
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             page.wait_for_timeout(1200)
-            report = filler().fill(page, values, ctx)
+            report = FillReport(url=page.url, ats=kind)
+            if kind != "workday":
+                report = filler().fill(page, values, ctx)
             if kind == "workday":
-                # Workday is a wizard; give the filler the advance flag and let it
-                # walk the steps it can see.
+                # Workday is a wizard with an account wall in front of it, so it
+                # gets the whole run to itself rather than a generic pass first.
                 password = ""
                 email = ""
                 if account is not None:

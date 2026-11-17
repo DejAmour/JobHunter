@@ -144,14 +144,18 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
             print(f"  {status}")
 
             if status == "code-needed":
-                print("\na verification code is on its way to your inbox.")
-                print("type it into the window; this waits until you are through.")
+                print("\nWorkday wants to verify your email — a code, and sometimes a link.")
+                print("Finish it in the browser window; this waits until you are through.")
                 try:
                     input("press Enter once you are signed in: ")
                 except (EOFError, KeyboardInterrupt):
                     print("\ncancelled")
                     return 1
-                status = "signed-in" if workday.step(page) != "sign-in" else "still on sign-in"
+                status = (
+                    "signed-in"
+                    if workday.step(page) not in ("create-account", "sign-in")
+                    else "still on the account form"
+                )
 
             if status not in ("signed-in", "created"):
                 print(f"  did not get through: {status}")
