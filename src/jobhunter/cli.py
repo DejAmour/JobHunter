@@ -114,7 +114,26 @@ def main(argv: list[str] | None = None) -> int:
     import_parser.add_argument("--dry-run", action="store_true")
 
     login_parser = commands.add_parser("login", help="capture a signed-in browser session")
-    login_parser.add_argument("--site", default="indeed", choices=("indeed", "linkedin"))
+    login_parser.add_argument("--site", default="indeed", choices=("indeed", "linkedin", "workday"))
+    login_parser.add_argument("--firm", default="", help="which employer, for --site workday")
+    login_parser.add_argument("--url", default="", help="start from this job URL instead of the newest in the store")
+    login_parser.add_argument("--create", action="store_true", help="create the account instead of signing in")
+
+    account_parser = commands.add_parser("account", help="employer accounts: the email here, the password in Windows")
+    account_commands = account_parser.add_subparsers(dest="account_command")
+    account_add = account_commands.add_parser("add", help="register an employer account")
+    account_add.add_argument("--firm", required=True)
+    account_add.add_argument("--email", default="", help="defaults to profile.email")
+    account_add.add_argument("--ats", default="workday")
+    account_commands.add_parser("list", help="show what is registered")
+    account_remove = account_commands.add_parser("remove", help="forget an employer account")
+    account_remove.add_argument("--firm", required=True)
+
+    mail_parser = commands.add_parser("mail", help="read verification codes from your inbox")
+    mail_commands = mail_parser.add_subparsers(dest="mail_command")
+    mail_setup = mail_commands.add_parser("setup", help="store a Gmail app password")
+    mail_setup.add_argument("--address", default="", help="defaults to profile.email")
+    mail_commands.add_parser("check", help="show whether a code can be read right now")
 
     refresh_parser = commands.add_parser("refresh", help="read the full posting for rows that only stored a summary")
     refresh_parser.add_argument("--limit", type=int, default=40)
@@ -134,6 +153,15 @@ def main(argv: list[str] | None = None) -> int:
     fill_parser.add_argument("--url", default="", help="override the posting URL (useful for fixtures)")
     fill_parser.add_argument("--ats", default="", help="force a board type (greenhouse, lever) instead of detecting it")
     fill_parser.add_argument("--advance", action="store_true", help="on Workday, walk to the next step after filling")
+    fill_parser.add_argument("--firm", default="", help="which employer account to use, if the URL does not say")
+    fill_parser.add_argument(
+        "--create-account",
+        dest="create_account",
+        action="store_true",
+        default=None,
+        help="create the employer account if it does not exist yet (default: only on the first run)",
+    )
+    fill_parser.add_argument("--no-create-account", dest="create_account", action="store_false")
 
     screen_parser = commands.add_parser("screen", help="screen a posting before applying")
     screen_parser.add_argument("--file", required=True, help="the posting text")
@@ -325,6 +353,40 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{pack.job['title']} — {pack.job['company']}")
         print(f"  cv:  {cv_file.name}{'' if cv_file.is_file() else '  (missing!)'}")
         print(f"  url: {url}")
+
+        from . import accounts as accounts_module
+        from . import mailbox
+
+        account = None
+        if args.firm:
+            account = accounts_module.find(home(), args.firm, ats="workday")
+            if account is None:
+                print(
+                    f"  account: no registration for {args.firm!r}; "
+                    f"run `jobhunter account add --firm \"{args.firm}\"` first"
+                )
+        else:
+            account = accounts_module.for_url(home(), url)
+
+        create_account = args.create_account
+        if account is not None and create_account is None:
+            # First run at this employer: the account probably does not exist yet.
+            create_account = not accounts_module.session_path(home(), account).is_file()
+
+        fetch_code = None
+        if mailbox.available(config):
+            from datetime import datetime
+
+            started = datetime.now()
+
+            def fetch_code():
+                found = mailbox.latest_code(config, since=started, wait_seconds=120)
+                return found.value if found else ""
+
+        if account is not None:
+            known = "" if accounts_module.has_password(account) else "  (no password stored)"
+            print(f"  account: {account.firm} <{account.email}>{known}")
+
         report = form_fill.run(
             url,
             values,
@@ -336,6 +398,10 @@ def main(argv: list[str] | None = None) -> int:
             screenshot_dir=root / "output" / "applications" / apply_pack._slug(
                 f"{pack.job['company']}-{pack.job['title']}"
             ),
+            account=account,
+            home=home() if account is not None else None,
+            create_account=bool(create_account),
+            on_code=fetch_code,
         )
         print()
         print(report.summary())
@@ -364,7 +430,102 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "login":
         from . import sessions
 
+        if args.site == "workday":
+            from . import accounts as accounts_module
+
+            account = accounts_module.find(home(), args.firm, ats="workday") if args.firm else None
+            if account is None:
+                print('which employer? try `jobhunter login --site workday --firm "M&G"`')
+                return 2
+            url = args.url
+            if not url:
+                with db.connect(store) as connection:
+                    row = connection.execute(
+                        "SELECT url FROM jobs WHERE company LIKE ? AND url LIKE '%myworkdayjobs%' "
+                        "ORDER BY id DESC LIMIT 1",
+                        (f"%{account.firm}%",),
+                    ).fetchone()
+                url = row["url"] if row else ""
+            if not url:
+                print("no Workday posting found for that employer; pass --url")
+                return 2
+            return sessions.login_workday(home(), config, account, url=url, create=args.create)
         return sessions.login(args.site, home())
+
+    if args.command == "account":
+        from . import accounts as accounts_module
+        from . import credentials
+
+        if args.account_command in (None, "list"):
+            known = accounts_module.load(home())
+            if not known:
+                print("no employer accounts yet: `jobhunter account add --firm \"M&G\"`")
+                return 0
+            for account in known:
+                mark = "password stored" if accounts_module.has_password(account) else "NO PASSWORD"
+                state = accounts_module.session_path(home(), account)
+                signed_in = "signed in" if state.is_file() else "not signed in yet"
+                print(f"{account}  {mark}, {signed_in}")
+            return 0
+
+        if args.account_command == "add":
+            import getpass
+
+            email = args.email or str(config.get("profile", {}).get("email", ""))
+            if not email:
+                email = input("email for this employer: ").strip()
+            if not credentials.available():
+                print("no credential store on this machine; refusing to write a password to disk")
+                return 2
+            print(f"password for {email} at {args.firm}")
+            print("it goes to the Windows Credential Manager, not to a file in this repository.")
+            first = getpass.getpass("password: ")
+            second = getpass.getpass("again: ")
+            if not first:
+                print("empty password; nothing stored")
+                return 2
+            if first != second:
+                print("the two did not match; nothing stored")
+                return 2
+            account = accounts_module.add(home(), args.firm, email, ats=args.ats, password=first)
+            print(f"registered {account}")
+            return 0
+
+        if args.account_command == "remove":
+            if accounts_module.remove(home(), args.firm):
+                print(f"forgot {args.firm}: registration, password and session")
+                return 0
+            print(f"no account registered for {args.firm!r}")
+            return 2
+
+    if args.command == "mail":
+        from . import mailbox
+
+        if args.mail_command == "setup":
+            import getpass
+
+            address = args.address or str(config.get("profile", {}).get("email", ""))
+            print("This is a Gmail *app password*, not your account password.")
+            print("Create one at https://myaccount.google.com/apppasswords (needs 2-step verification).")
+            password = getpass.getpass("app password: ")
+            if not password:
+                print("nothing stored")
+                return 2
+            problem = mailbox.verify(config, mail_address=address, app_password=password)
+            if problem:
+                print(f"Gmail refused it: {problem}")
+                return 1
+            mailbox.store_password(address, password)
+            print(f"stored; codes for {address} can now be read automatically")
+            return 0
+
+        if args.mail_command in (None, "check"):
+            if not mailbox.available(config):
+                print("no app password stored: `jobhunter mail setup`")
+                return 0
+            problem = mailbox.verify(config)
+            print(f"{mailbox.address(config)}: {'ok' if not problem else problem}")
+            return 0 if not problem else 1
 
     if args.command == "import":
         from . import import_cmd

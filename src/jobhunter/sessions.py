@@ -82,3 +82,93 @@ def login(site: str, home: Path) -> int:
     print(f"saved {cookies} cookies to {target}")
     print("discovery will use it automatically when the file exists.")
     return 0
+
+
+def login_workday(home: Path, config: dict, account, *, url: str = "", create: bool = False) -> int:
+    """Sign in to one employer's Workday tenant and keep the cookies.
+
+    The attended version of what ``fill`` does headless: a real window, the
+    password from the Credential Manager, and a pause for anything only a human
+    can do — a verification code when no mailbox is configured, or a captcha.
+    The saved session makes the next application at that employer one page
+    shorter.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("playwright is not installed: pip install playwright && playwright install chromium")
+        return 2
+
+    from . import accounts as accounts_module
+    from . import fill as form_fill
+    from . import mailbox
+
+    password = accounts_module.password(account)
+    if not password:
+        print(f"no password stored for {account.firm}")
+        print(f'run `jobhunter account add --firm "{account.firm}"` first')
+        return 2
+
+    target = accounts_module.session_path(home, account)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    on_code = None
+    if mailbox.available(config):
+        from datetime import datetime
+
+        started = datetime.now()
+
+        def on_code():
+            found = mailbox.latest_code(config, since=started, wait_seconds=120)
+            return found.value if found else ""
+
+    print(f"{account.firm}: {account.email}")
+    print("signing in" if not create else "creating the account")
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=False)
+        context = browser.new_context(
+            locale="en-GB",
+            viewport={"width": 1280, "height": 900},
+            storage_state=str(target) if target.is_file() else None,
+        )
+        page = context.new_page()
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(1500)
+            workday = form_fill.Workday()
+            workday.start(page)
+            status = workday.sign_in(
+                page, email=account.email, password=password, create=create, on_code=on_code
+            )
+            print(f"  {status}")
+
+            if status == "code-needed":
+                print("\na verification code is on its way to your inbox.")
+                print("type it into the window; this waits until you are through.")
+                try:
+                    input("press Enter once you are signed in: ")
+                except (EOFError, KeyboardInterrupt):
+                    print("\ncancelled")
+                    return 1
+                status = "signed-in" if workday.step(page) != "sign-in" else "still on sign-in"
+
+            if status not in ("signed-in", "created"):
+                print(f"  did not get through: {status}")
+                if status == "bad-password":
+                    print(f'  refresh it: `jobhunter account add --firm "{account.firm}"`')
+                page.screenshot(path=str(target.with_suffix(".png")), full_page=True)
+                print(f"  screenshot: {target.with_suffix('.png')}")
+                return 1
+
+            tenant = accounts_module.tenant_from_url(page.url)
+            if tenant:
+                accounts_module.upsert_tenant(home, account.firm, tenant)
+            context.storage_state(path=str(target))
+            print(f"  session saved: {target.name}")
+            print("  the next `fill` at this employer skips the sign-in.")
+            return 0
+        finally:
+            context.close()
+            browser.close()
+

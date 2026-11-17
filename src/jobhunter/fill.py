@@ -126,6 +126,7 @@ class FillReport:
     questions_answered: list[tuple[str, str]] = field(default_factory=list)
     questions_review: list[tuple[str, str]] = field(default_factory=list)
     steps: list[str] = field(default_factory=list)
+    sign_in: str = ""
     screenshot: str = ""
     submitted: bool = False
     error: str = ""
@@ -138,6 +139,8 @@ class FillReport:
         lines.append(f"  filled:  {', '.join(self.filled) or 'nothing'}")
         if self.steps:
             lines.append(f"  steps:   {' -> '.join(self.steps)}")
+        if self.sign_in:
+            lines.append(f"  account: {self.sign_in}")
         if self.skipped:
             lines.append(f"  skipped: {', '.join(self.skipped)}")
         if self.empty_answers:
@@ -328,10 +331,11 @@ class Workday:
     """Workday's wizard, one step at a time.
 
     Workday is five pages behind an account: My Information, My Experience,
-    Application Questions, Voluntary Disclosures, Review. This fills whichever
-    step is showing, and can advance to the next with ``advance``. It does not
-    sign in — account creation is per employer and a password belongs in the
-    Credential Manager, not here — and it does not submit.
+    Application Questions, Voluntary Disclosures, Review. This clicks Apply,
+    joins the account wall with the password from the Credential Manager, creates
+    the account if asked and a verification code can be read, then fills whichever
+    step is showing and — with ``advance`` — walks to the next one, stopping at
+    Review. It does not submit.
     """
 
     name = "workday"
@@ -370,28 +374,90 @@ class Workday:
                     continue
         return ""
 
-    def fill(self, page, values: Values, ctx=None, *, advance: bool = False, steps: int = 5) -> FillReport:
+    def _settle(self, page, *, wait_ms: int = 1500) -> str:
+        """The step showing now, or after a moment — Workday swaps them by XHR."""
+        step = self.step(page)
+        if step:
+            return step
+        page.wait_for_timeout(wait_ms)
+        return self.step(page)
+
+    def fill(
+        self,
+        page,
+        values: Values,
+        ctx=None,
+        *,
+        advance: bool = False,
+        steps: int = 6,
+        email: str = "",
+        password: str = "",
+        create_account: bool = False,
+        on_code=None,
+    ) -> FillReport:
         report = FillReport(url=page.url, ats=self.name)
         data = values.as_dict()
 
+        # Before any of the five steps there is a job page with an Apply button.
+        if not self.step(page) and self._clickable(page, self.APPLY) is not None:
+            self.start(page)
+
         for _ in range(max(1, steps)):
-            step = self.step(page)
+            step = self._settle(page)
             report.steps.append(step or "unknown")
 
             if step == "sign-in":
-                report.error = "sign-in required: Workday accounts are per employer, so this one is yours"
+                if not email:
+                    report.error = (
+                        "sign-in required: register this employer once with "
+                        f'`jobhunter account add --firm "{values.org}"`'
+                    )
+                    return report
+                if not password:
+                    report.error = (
+                        "no password stored for this employer: "
+                        f'`jobhunter account add --firm "{values.org}"`'
+                    )
+                    return report
+                status = self.sign_in(
+                    page,
+                    email=email,
+                    password=password,
+                    create=create_account,
+                    on_code=on_code,
+                )
+                report.sign_in = status
+                if status in ("signed-in", "created"):
+                    page.wait_for_timeout(2500)
+                    continue
+                if status == "code-needed":
+                    report.error = (
+                        "verification code needed: run `jobhunter mail setup` so it can be "
+                        "read from your inbox, or finish this account by hand"
+                    )
+                elif status == "bad-password":
+                    report.error = (
+                        "the stored password was rejected: refresh it with "
+                        "`jobhunter account add --firm ...`"
+                    )
+                else:
+                    report.error = status
                 return report
-            if step in ("my-information", ""):
+
+            if step == "my-information":
                 self._fields(page, data, report)
-            if step in ("my-experience", ""):
+            elif step == "my-experience":
                 self._resume(page, data, report)
-            if step in ("questions", ""):
-                fill_questions(page, ctx, "form input, form select, form textarea, fieldset legend", report) if ctx else None
-            if step == "disclosures":
+            elif step == "questions":
+                if ctx:
+                    fill_questions(page, ctx, "form input, form select, form textarea, fieldset legend", report)
+            elif step == "disclosures":
                 report.questions_review.append(
                     ("Voluntary disclosures", "protected: never auto-answered")
                 )
-            if step == "review" or step == "unknown":
+            else:
+                # Review, or a page this filler does not know: stop rather than
+                # click through something it cannot read.
                 return report
 
             if not advance:
@@ -449,6 +515,246 @@ class Workday:
             return page.query_selector(selector)
         except Exception:  # noqa: BLE001
             return None
+
+    # --- getting through the account wall ---------------------------------
+
+    # Workday ids drift between tenants and releases, so every entry is a list
+    # of candidates: the documented automation id first, then older ids, then a
+    # plain type or name selector.
+    SIGN_IN = {
+        "email": (
+            "input[data-automation-id='email']",
+            "input[data-automation-id='signInEmail']",
+            "#signInEmail",
+            "input[type='email']",
+        ),
+        "password": (
+            "input[data-automation-id='password']",
+            "input[data-automation-id='signInPassword']",
+            "#signInPassword",
+            "input[type='password']",
+        ),
+        "submit": (
+            "[data-automation-id='signInButton']",
+            "[data-automation-id='signInSubmitButton']",
+            "button[type='submit']",
+        ),
+        "create": (
+            "[data-automation-id='createAccountLink']",
+            "a[data-automation-id='createAccount']",
+            "button[data-automation-id='createAccount']",
+        ),
+        "verify": (
+            "input[data-automation-id='verifyPassword']",
+            "#verifyPassword",
+            "input[name='verifyPassword']",
+        ),
+        "terms": (
+            "input[data-automation-id='createAccountCheckbox']",
+            "input[name='termsAccepted']",
+            "input[type='checkbox']",
+        ),
+        "create_submit": (
+            "[data-automation-id='createAccountSubmitButton']",
+            "[data-automation-id='createAccountButton']",
+        ),
+        "code": (
+            "input[data-automation-id='verificationCode']",
+            "#verificationCode",
+            "input[name='verificationCode']",
+            "input[autocomplete='one-time-code']",
+        ),
+        "code_submit": (
+            "[data-automation-id='verifyButton']",
+            "[data-automation-id='submitVerificationCode']",
+            "[data-automation-id='continueButton']",
+        ),
+        "error": (
+            "[data-automation-id='errorMessage']",
+            "[data-automation-id='signInError']",
+            "[role='alert']",
+            ".error",
+        ),
+    }
+
+    # The first two clicks of a Workday application, before there is any account.
+    APPLY = (
+        "[data-automation-id='adventureButton']",
+        "a[data-automation-id='applyButton']",
+        "button[data-automation-id='applyButton']",
+    )
+    APPLY_MANUALLY = (
+        "[data-automation-id='applyManually']",
+        "a[data-automation-id='applyManually']",
+        "button[data-automation-id='applyManually']",
+    )
+    AUTOFILL = (
+        "[data-automation-id='autofillWithResume']",
+        "button[data-automation-id='autofillWithResume']",
+    )
+
+    def start(self, page, *, wait_ms: int = 1500) -> bool:
+        """Click Apply, then choose the manual route. True if anything was clicked."""
+        clicked = False
+        for selectors in (self.APPLY, self.APPLY_MANUALLY, self.AUTOFILL):
+            button = self._clickable(page, selectors)
+            if button is None:
+                continue
+            try:
+                button.click()
+                page.wait_for_timeout(wait_ms)
+                clicked = True
+            except Exception:  # noqa: BLE001
+                continue
+        return clicked
+
+    def sign_in(
+        self,
+        page,
+        *,
+        email: str,
+        password: str,
+        create: bool = False,
+        verification: str = "",
+        on_code=None,
+        wait_ms: int = 3000,
+    ) -> str:
+        """Join the account wall, or climb it.
+
+        Returns one of ``signed-in``, ``created``, ``code-needed``, ``bad-password``
+        or ``failed: <what Workday said>``. It never creates an account unless
+        asked, because doing so by accident leaves a trail of dead logins at
+        employers that share a tenant with the one you wanted.
+        """
+        if not email or not password:
+            return "failed: no stored account for this employer"
+
+        if create:
+            link = self._clickable(page, self.SIGN_IN["create"])
+            if link is not None:
+                link.click()
+                page.wait_for_timeout(wait_ms)
+
+        field = self._editable(page, self.SIGN_IN["email"])
+        if field is not None:
+            _type(field, email)
+
+        secret = self._editable(page, self.SIGN_IN["password"])
+        if secret is not None:
+            _type(secret, password)
+
+        if create:
+            confirm = self._editable(page, self.SIGN_IN["verify"])
+            if confirm is not None:
+                _type(confirm, password)
+            terms = self._first(page, self.SIGN_IN["terms"])
+            if terms is not None:
+                try:
+                    if not terms.is_checked():
+                        terms.check()
+                except Exception:  # noqa: BLE001
+                    pass
+            button = self._clickable(page, self.SIGN_IN["create_submit"]) or self._clickable(
+                page, self.SIGN_IN["submit"]
+            )
+        else:
+            button = self._clickable(page, self.SIGN_IN["submit"])
+
+        if button is None:
+            return "failed: no sign-in button on the page"
+        button.click()
+        page.wait_for_timeout(wait_ms + 1500)
+
+        # A verification code means the account exists but the mailbox owns it.
+        code_field = self._editable(page, self.SIGN_IN["code"])
+        if code_field is not None:
+            code = ""
+            if on_code is not None:
+                code = str(on_code() or "")
+            elif verification:
+                code = verification
+            if not code:
+                return "code-needed"
+            _type(code_field, code)
+            submit = self._clickable(page, self.SIGN_IN["code_submit"]) or self._clickable(
+                page, self.SIGN_IN["submit"]
+            )
+            if submit is not None:
+                submit.click()
+                page.wait_for_timeout(wait_ms + 1500)
+
+        if self.step(page) == "sign-in":
+            complaint = self._text_of(page, self.SIGN_IN["error"])
+            lowered = complaint.lower()
+            if "incorrect" in lowered or "invalid" in lowered or "password" in lowered:
+                return "bad-password"
+            return f"failed: {complaint or 'still on the sign-in page'}"
+        return "created" if create else "signed-in"
+
+    # --- selector plumbing ------------------------------------------------
+
+    @staticmethod
+    def _first(page, selectors) -> object | None:
+        for selector in selectors:
+            try:
+                element = page.query_selector(selector)
+            except Exception:  # noqa: BLE001
+                continue
+            if element is not None:
+                return element
+        return None
+
+    @classmethod
+    def _editable(cls, page, selectors):
+        for selector in selectors:
+            try:
+                element = page.query_selector(selector)
+                if element is not None and element.is_visible() and element.is_enabled():
+                    return element
+            except Exception:  # noqa: BLE001
+                continue
+        return None
+
+    @classmethod
+    def _clickable(cls, page, selectors):
+        for selector in selectors:
+            try:
+                element = page.query_selector(selector)
+                if element is not None and element.is_visible():
+                    return element
+            except Exception:  # noqa: BLE001
+                continue
+        return None
+
+    @staticmethod
+    def _text_of(page, selectors) -> str:
+        for selector in selectors:
+            try:
+                element = page.query_selector(selector)
+                if element is not None:
+                    text = (element.inner_text() or "").strip()
+                    if text:
+                        return " ".join(text.split())[:200]
+            except Exception:  # noqa: BLE001
+                continue
+        return ""
+
+
+def _type(element, value: str) -> None:
+    """Put text in a field the way a person does.
+
+    Workday's React inputs ignore a bare value assignment often enough that the
+    autofill community has standardised on real key events; ``fill`` dispatches
+    the input event React listens for, and the keystrokes cover the components
+    that only listen to those.
+    """
+    try:
+        element.click()
+        element.fill("")
+        element.fill(value)
+        element.dispatch_event("change")
+    except Exception:  # noqa: BLE001
+        element.fill(value)
 
 
 FILLERS = {
@@ -594,8 +900,19 @@ def run(
     headless: bool = True,
     screenshot_dir: Path | None = None,
     timeout_ms: int = 45_000,
+    account=None,
+    home: Path | None = None,
+    create_account: bool = False,
+    on_code=None,
+    mail_config: dict | None = None,
 ) -> FillReport:
-    """Open a form, fill it, screenshot it, and optionally submit."""
+    """Open a form, fill it, screenshot it, and optionally submit.
+
+    With an ``account`` (see :mod:`jobhunter.accounts`) a Workday run will sign
+    in with the stored password, create the account if asked, and reuse the
+    cookies from last time so the second application at that employer is one
+    page shorter.
+    """
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -610,9 +927,21 @@ def run(
             error=f"no filler for {kind or 'this site'} yet; greenhouse and lever are done",
         )
 
+    state_path = None
+    if account is not None and home is not None:
+        from . import accounts as accounts_module
+
+        state_path = accounts_module.session_path(home, account)
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=headless)
-        context = browser.new_context(user_agent=UA, locale="en-GB", viewport={"width": 1280, "height": 1600})
+        context = browser.new_context(
+            user_agent=UA,
+            locale="en-GB",
+            viewport={"width": 1280, "height": 1600},
+            storage_state=str(state_path) if state_path and state_path.is_file() else None,
+        )
         page = context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -621,10 +950,38 @@ def run(
             if kind == "workday":
                 # Workday is a wizard; give the filler the advance flag and let it
                 # walk the steps it can see.
-                report = Workday().fill(page, values, ctx, advance=advance)
+                password = ""
+                email = ""
+                if account is not None:
+                    from . import accounts as accounts_module
+
+                    email = account.email
+                    password = accounts_module.password(account)
+                report = Workday().fill(
+                    page,
+                    values,
+                    ctx,
+                    advance=advance,
+                    email=email,
+                    password=password,
+                    create_account=create_account,
+                    on_code=on_code,
+                )
+                if report.sign_in in ("created", "signed-in") and account is not None and home is not None:
+                    from . import accounts as accounts_module
+
+                    tenant = accounts_module.tenant_from_url(page.url)
+                    if tenant:
+                        accounts_module.upsert_tenant(home, account.firm, tenant)
             report.ats = kind
             report.url = page.url
             report.required_left = required_still_empty(page)
+
+            if state_path is not None:
+                try:
+                    context.storage_state(path=str(state_path))
+                except Exception:  # noqa: BLE001
+                    pass
 
             if screenshot_dir is not None:
                 screenshot_dir.mkdir(parents=True, exist_ok=True)

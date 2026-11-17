@@ -141,17 +141,34 @@ python -m pytest tests/test_fill.py -q
 ### Workday
 
 Workday is five pages behind an account: My Information, My Experience,
-Application Questions, Voluntary Disclosures, Review. The filler detects which
-step is showing, fills what it can, and with `--advance` walks to the next step,
-stopping at Review.
+Application Questions, Voluntary Disclosures, Review. The filler clicks Apply,
+signs in, fills whichever step is showing, and with `--advance` walks to Review.
+
+Register the employer once:
 
 ```
-python -m jobhunter fill --job 4 --advance
+jobhunter account add --firm "M&G"
 ```
 
-What it will not do: create an account or sign in for you. Workday accounts are
-per employer, so that one is yours, and the password belongs in Windows
-Credential Manager rather than in this repository.
+It asks for the email and the password twice. The email goes to
+`~/.jobhunter/accounts.toml`; the password goes to the Windows Credential
+Manager. Neither is committed, and nothing else ever reads the password.
+
+Then the same command as everywhere else:
+
+```
+jobhunter fill --job 4 --advance
+```
+
+The first run at an employer creates the account when a verification code can be
+read (see `jobhunter mail setup`), and saves the signed-in session. Every
+application after that at the same employer skips the sign-in. To watch the
+sign-in happen instead, `jobhunter login --site workday --firm "M&G"` opens a real
+window and waits for you.
+
+It still does not submit. `--submit` is a separate decision.
+
+
 ### The fact sheet
 
 ```
@@ -164,8 +181,27 @@ which is gitignored, and read by every command.
 
 Voluntary disclosures (gender, ethnicity, veteran status, disability) are the
 last four questions and are **opt-in**: say no and they are never stored, and
-forms leave them blank. Say yes and they are filled — still flagged for review,
+forms leave them blank. Say yes and they are filled - still flagged for review,
 because a declaration about you is always yours to confirm.
+
+The answers can be edited by hand instead; the question list is
+`src/jobhunter/facts.py`, the answers are `~/.jobhunter/facts.toml`, and pressing
+Enter keeps whatever is in brackets.
+
+### Verification codes
+
+Creating a Workday account sends a one-time code. To have it read rather than
+typed:
+
+```
+jobhunter mail setup
+```
+
+That wants a Gmail **app password** (myaccount.google.com/apppasswords, which
+needs 2-step verification) - not your account password. It is stored in the
+Credential Manager like everything else. Skip it and the browser simply waits for
+you to type the code.
+
 
 ### Questions on the form
 

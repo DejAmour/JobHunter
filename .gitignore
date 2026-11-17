@@ -37,3 +37,8 @@ cv/contact.toml
 
 # The fact sheet written by `jobhunter facts` — address, phone, disclosures.
 facts.toml
+
+# Employer account registry: emails only. Passwords are in the Windows
+# Credential Manager and never touch the disk.
+accounts.toml
+
