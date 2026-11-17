@@ -134,10 +134,17 @@ def test_a_missing_answer_is_reported_rather_than_guessed(widgets):
     assert widgets.inner_text("#name--legalName--title") == "Select One"
 
 
-def test_an_option_that_does_not_exist_does_not_pick_a_near_match(widgets):
-    """'Company website' is in the bank; a form offering only 'Internet' must not
-    silently take 'Internet'."""
+def test_an_inexact_match_for_another_question_is_not_taken(widgets):
+    """The closeness rule is scoped to the question, not to the dropdown."""
+    report = fill.FillReport(url="", ats="workday")
+    fill.Workday()._extras(widgets, ctx(previous_worker="Maybe"), report)
+    assert widgets.is_checked("#r1") is False
+    assert widgets.is_checked("#r2") is False
+
+
+def test_a_how_did_you_hear_question_takes_a_close_option(widgets):
+    """He does not care which variant: "company website or similar"."""
     report = fill.FillReport(url="", ats="workday")
     fill.Workday()._extras(widgets, ctx(how_did_you_hear="Employee referral"), report)
-    assert widgets.inner_text("#source--source") == "Select One"
-    assert any("no option for" in entry for entry in report.empty_answers)
+    assert widgets.inner_text("#source--source") == "Company Website"
+    assert any("preference" in note for note in report.notes)

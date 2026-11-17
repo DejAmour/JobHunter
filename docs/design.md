@@ -265,3 +265,11 @@ tried or considered and the reason it lost would otherwise be rediscovered.
 - **ADR 8 — A lock is terminal for the run.** Repeated sign-in attempts are what
   cause locks, so the tool stops at the first "account locked" and says so,
   rather than trying the other door.
+- **ADR 9 — A bounded resolver, not an agent.** Choosing an option is the one
+  part of a form that is not deterministic: the bank says "Company website" and
+  the tenant offers "Internet". `choices.choose` resolves that from a closed
+  list — exact, then what this tenant chose last time, then a short preference
+  list for questions where any close option is acceptable. It returns a string
+  the form actually offered, or None. A model could sit behind the same
+  signature, choosing from the same list; nothing else would change. What it
+  will never do is type into a field or press a button.

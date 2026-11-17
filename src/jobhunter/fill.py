@@ -125,6 +125,7 @@ class FillReport:
     required_left: list[str] = field(default_factory=list)
     questions_answered: list[tuple[str, str]] = field(default_factory=list)
     questions_review: list[tuple[str, str]] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
     steps: list[str] = field(default_factory=list)
     sign_in: str = ""
     screenshot: str = ""
@@ -155,6 +156,10 @@ class FillReport:
             lines.append("  questions left for you:")
             for question, reason in self.questions_review:
                 lines.append(f"    {question[:64]} ({reason})")
+        if self.notes:
+            lines.append("  notes:")
+            for note in self.notes:
+                lines.append(f"    {note[:140]}")
         if self.required_left:
             lines.append(f"  still required: {', '.join(self.required_left)}")
         lines.append(f"  submitted: {'yes' if self.submitted else 'no'}")
@@ -607,10 +612,25 @@ class Workday:
 
     @classmethod
     def _option(cls, page, wanted: str):
-        """The visible popup option that best matches, or None."""
-        target = wanted.strip().lower()
+        """The visible popup option whose text is exactly ``wanted``, or None."""
+        target = " ".join((wanted or "").split()).lower()
         if not target:
             return None
+        for option in cls._visible_options(page):
+            if cls._option_text(option) == target:
+                return option
+        return None
+
+    @staticmethod
+    def _option_text(option) -> str:
+        try:
+            return " ".join((option.inner_text() or "").split()).lower()
+        except Exception:  # noqa: BLE001
+            return ""
+
+    @classmethod
+    def _visible_options(cls, page):
+        """Every choice the open popup is offering, in document order."""
         candidates = []
         for selector in ("[role='option']", "[data-automation-id='promptOption']"):
             try:
@@ -625,31 +645,44 @@ class Workday:
                 # The selected-item pill is also role=option; it is not a choice.
                 if (option.get_attribute("data-automation-id") or "") == "selectedItem":
                     continue
-                visible.append(option)
+                if cls._option_text(option):
+                    visible.append(option)
             except Exception:  # noqa: BLE001
                 continue
+        return visible
 
-        def text_of(option) -> str:
-            try:
-                return " ".join((option.inner_text() or "").split()).lower()
-            except Exception:  # noqa: BLE001
-                return ""
+    @classmethod
+    def _option_texts(cls, page) -> list[str]:
+        seen: list[str] = []
+        for option in cls._visible_options(page):
+            text = cls._option_text(option)
+            if text and text not in seen:
+                seen.append(text)
+        return seen
 
-        for matcher in (
-            lambda text: text == target,
-            lambda text: text.startswith(target),
-            lambda text: target in text,
-        ):
-            for option in visible:
-                if matcher(text_of(option)):
-                    return option
-        return None
+    def _dropdown(
+        self,
+        page,
+        button,
+        question: str,
+        answer: str,
+        *,
+        tenant: str = "",
+        report=None,
+    ) -> bool:
+        """Open a Workday dropdown and take the option the resolver picks.
 
-    def _dropdown(self, page, button, value: str) -> bool:
+        The resolver only ever returns a string the popup actually offered, so
+        nothing here can invent a value: it can choose badly, and that is
+        reported, but it cannot type.
+        """
+        from . import choices
+
         _click(page, button)
         page.wait_for_timeout(800)
-        option = self._option(page, value)
-        if option is None:
+        options = self._option_texts(page)
+        picked = choices.choose(question, options, answer, tenant=tenant) if options else None
+        if picked is None:
             # Leaving the popup open would cover the next field.
             try:
                 page.keyboard.press("Escape")
@@ -657,8 +690,25 @@ class Workday:
                 pass
             page.wait_for_timeout(300)
             return False
-        _click(page, option)
+
+        option_text, reason = picked
+        element = self._option(page, option_text)
+        if element is None:
+            try:
+                page.keyboard.press("Escape")
+            except Exception:  # noqa: BLE001
+                pass
+            page.wait_for_timeout(300)
+            return False
+
+        _click(page, element)
         page.wait_for_timeout(600)
+        if reason != "exact" and report is not None:
+            report.notes.append(
+                f"{question}: chose {option_text!r} ({reason}); the bank says {answer!r}"
+            )
+            if tenant:
+                choices.remember(tenant, question, option_text)
         return True
 
     @staticmethod
@@ -777,10 +827,19 @@ class Workday:
 
     def _extras(self, page, ctx, report) -> None:
         """Answer the dropdowns and radio groups on My Information."""
-        from . import questions
+        from . import choices, questions
 
         if ctx is None:
             return
+
+        tenant = ""
+        try:
+            from . import accounts as accounts_module
+
+            tenant = accounts_module.tenant_from_url(page.url)
+        except Exception:  # noqa: BLE001
+            tenant = ""
+        tenant = tenant or str(getattr(ctx, "company", "") or "")
 
         for button in self._dropdown_buttons(page):
             try:
@@ -789,7 +848,14 @@ class Workday:
                 if answer is None or not answer.value:
                     report.empty_answers.append(label or "a dropdown")
                     continue
-                if self._dropdown(page, button, answer.value):
+                if self._dropdown(
+                    page,
+                    button,
+                    label,
+                    answer.value,
+                    tenant=tenant,
+                    report=report,
+                ):
                     report.filled.append(label)
                 else:
                     report.empty_answers.append(f"{label} (no option for {answer.value!r})")
