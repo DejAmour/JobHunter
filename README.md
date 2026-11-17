@@ -26,17 +26,24 @@ projects draw the same line independently. See "Assessments" in
 
 Working today:
 
-- **Discovery** — reads employer job boards directly (Greenhouse, Lever,
-  Workable, Ashby, Workday, SEEK), filters by title and location, screens what
-  survives, and stores it.
+- **Discovery** — reads employer job boards (Greenhouse, Lever, Workable,
+  Ashby, Workday, SEEK, SmartRecruiters) and, for coverage, Adzuna, Reed,
+  Indeed and JobSpy. Filters by title and location, screens what survives, and
+  stores it.
 - **Dashboard** — a local web app tracking jobs, applications, assessments,
   interviews, outreach and CV versions.
+- **Form filling** — Playwright against the employer's own form: Greenhouse,
+  Lever, and Workday's wizard including its account wall. It fills from the
+  answer bank, uploads the CV and stops at Review. It does not submit.
+- **Traces** — every browser run writes `~/.jobhunter/traces/<run>/`: network
+  log with secrets masked, console, DOM, screenshot, and a `summary.txt` naming
+  every submission and its response.
 - CV parsing and audit, screening (knockout extraction), the SQLite store,
   CV generation from `cv/content.toml`, and outreach drafting with a dry-run
   sender.
 
-Form filling is designed but not yet implemented; the ATS plugins and fixtures
-it will use are already vendored.
+Not yet: Ashby, Workable and SmartRecruiters fillers; Oracle HCM discovery;
+an answer-bank UI (the fact sheet is edited with `jobhunter facts`).
 
 ## Discovery
 

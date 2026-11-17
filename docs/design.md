@@ -11,13 +11,26 @@ the same place. The split:
 
 | Taken from | What | Why that one |
 |---|---|---|
-| AIHawk | `vendor/aihawk/plugins/*.md` | A plugin is prose, not code. It names selectors and failure modes and lets the model adapt. Cheaper to maintain than 12 DOM adapters, and it already covers Workday. |
 | AIHawk | Title-graph search plan | Deterministic keyword scoring is cheap and inspectable; only the top ~100 postings go to a model. |
 | AIHawk | Screenshots + `data/trace.log` per send | Proof of what was submitted, and a way to debug a form after the fact. |
 | JobAppAgent | OS credential store | Workday needs a per-company password. Storing it in a local DB is the one thing that would make a leak catastrophic. Use Windows Credential Manager / DPAPI, never a column. |
 | JobAppAgent | `vendor/jobappagent/fixtures/` | Real Greenhouse/Ashby/Lever/Workday HTML. Lets every selector be tested without submitting to an employer. |
 | JobAppAgent | Answer bank | A stable set of facts about the candidate. Postings and forms are untrusted input; the answer bank is the only source of truth for what gets written into a form. |
 | JobAppAgent | Duplicate, requisition and cooldown gates | Re-applying to the same req is the most common way to get filtered. |
+
+### The prose-plugin idea, and why it was dropped
+
+The original plan was to take AIHawk's `plugins/*.md`: a Markdown file per ATS
+naming selectors and failure modes, which the model then adapts at run time.
+That is cheap to write and impossible to test — there is no fixed behaviour to
+assert, so a regression can only be found by running against a live tenant.
+
+What exists instead is `fill.py`: ordinary Python with hard-coded
+`data-automation-id` values, and a test per page shape. Slower to write, but a
+failure is reproducible offline and a change can be reviewed before it is run
+against an employer. The vendored Markdown is kept as reference material, not
+as executable configuration. (ADR 1.)
+
 
 Rejected from AIHawk: its model gateway. `DEFAULT_BASE_URL` is hardcoded to one
 vendor, the scoring path uses a non-portable endpoint, and its key URL is the
@@ -78,16 +91,22 @@ Drafts are plain text, reference one specific detail from the posting, and ask
 for one thing. A draft that cannot name a concrete reason for writing should not
 be sent, so `draft` refuses when it cannot find one.
 
-## 4. Discovery reads boards, not aggregators
+## 4. Discovery prefers boards; aggregators are a supplement
 
-Aggregators are the obvious first stop and the wrong one. They are stale by a
-day or two, they hide the employer's own wording, and they charge for API access
-that returns less than the employer already publishes.
+Aggregators are the obvious first stop and the wrong *first* one. They are stale
+by a day or two, they hide the employer's own wording, and they charge for API
+access that returns less than the employer already publishes.
 
 So `sources.py` talks to the board itself. Every ATS on the list exposes the same
 JSON its own careers page loads: Greenhouse, Lever, Workable, Ashby, Workday and
 SEEK. That gives the full description, the real location string, the posting
 date and a URL that will still work next week.
+
+Aggregators were added afterwards, for coverage rather than quality: Adzuna and
+Reed where a key or a public endpoint exists, Indeed through a real browser
+because it answers 403 to anything else, JobSpy as a last resort. They are
+marked as aggregators in the store, so the dashboard can show direct employers
+only. (ADR 2.)
 
 Three consequences, all deliberate:
 
@@ -134,8 +153,9 @@ The loop, per job:
    so the record says what was sent, not what was intended.
 2. **Open the employer's form in a real browser.** Playwright, visible by
    default, because a silent submission is not something to run unattended.
-   The ATS is identified from the URL and the vendored AIHawk plugin for that
-   ATS supplies the selectors.
+   The ATS is identified from the URL and the matching filler in `fill.py`
+   supplies the selectors. Those selectors are Python, and each page shape has
+   a test; the vendored Markdown plugins are reference only (ADR 1).
 3. **Fill from the answer bank, never from the posting.** `[answers]` in
    config is the only source for what goes into a form. Postings and pages are
    untrusted input; a job advert cannot tell the filler what to write.
@@ -144,7 +164,27 @@ The loop, per job:
    presses submit. `--submit` exists for the day this is trusted, and is off.
 5. **Record it.** Append to `applications` with a proof screenshot path, the
    timestamp, and the variant used. The ledger is the only evidence a
-   submission happened.
+   submission happened, so `submitted` means the page moved — not that a click
+   was dispatched.
+
+## 7. Every run leaves evidence
+
+A screenshot shows what the page looked like. It cannot show whether a request
+left the browser or what the server answered, and those are the only facts that
+separate "the click never landed" from "the server rejected the values".
+
+So `evidence.py` writes a folder per run under `~/.jobhunter/traces/`: the
+network log (request bodies included, secrets masked on the way in), console
+messages, page errors, the DOM, a screenshot, and a `summary.txt` that names
+every submission and what came back. The first line of a diagnosis is
+"submissions: 0" or "POST /register -> 400".
+
+This exists because a Workday account wall failed silently: fields filled, no
+error, page unmoved. Six hand-written tests passed while the live run failed,
+and the only artefact was a picture of a form. (ADR 3.)
+
+Tracing is not a substitute for tests. It is what makes a live failure
+diagnosable in one attempt rather than five.
 
 What is never automated: assessments, demographic questions, legal
 attestations, and any question with no answer in the bank. Workday needs an
@@ -175,10 +215,36 @@ and scaffolding for take-home work that leaves the reasoning with the candidate.
    done for Greenhouse, Lever, Workable, Ashby, Workday and SEEK.
 3. ~~Dashboard over the store~~ — done: jobs, applications, assessments,
    interviews, outreach, CV library.
-4. Form filling: Playwright + the vendored plugins, tested against the vendored
-   fixtures, review-before-submit.
-5. Answer bank UI, with the credential store for Workday.
+4. ~~Form filling: Playwright, tested against the vendored fixtures,
+   review-before-submit.~~ Done for Greenhouse and Lever, and for Workday's
+   wizard. Workday's account wall is the open problem; Ashby, Workable and
+   SmartRecruiters are next (ADR 4).
+5. ~~Credential store for Workday.~~ Done. Answer bank UI still pending; the
+   fact sheet is edited through `jobhunter facts` for now.
 6. Assessment prep: timed drills, company question banks.
-7. More sources: Oracle HCM (Schroders, AustralianSuper, JPMorgan, AMP) and
-   SmartRecruiters (Evelyn Partners) were detected but are not implemented yet;
-   Adzuna needs a free key and would add UK aggregator coverage.
+7. More sources: Oracle HCM (Schroders, AustralianSuper, JPMorgan, AMP) is
+   detected but not implemented. SmartRecruiters, Adzuna and Reed are done;
+   Indeed runs through a browser and JobSpy is the last resort.
+
+## Decision records
+
+Short, dated, and reversible. Each one is here because the alternative was
+tried or considered and the reason it lost would otherwise be rediscovered.
+
+- **ADR 1 — Selectors are code, not prose.** AIHawk's Markdown plugins were the
+  plan; they cannot be tested, so a regression only shows up live. Replaced by
+  hard-coded selectors plus fixtures per page shape.
+- **ADR 2 — Boards first, aggregators second.** Aggregators were originally
+  excluded on quality grounds. Coverage won; they are tagged so direct
+  employers can be filtered, and a README claim that discovery is board-only
+  was removed.
+- **ADR 3 — Every browser run is traced.** A silent Workday failure left only a
+  screenshot, which cannot distinguish a lost click from a server refusal.
+  `evidence.py` records requests (secrets masked), console, DOM and a summary.
+- **ADR 4 — The apply side gets a contract.** `sources.py` has a `Source` base
+  class and a registry; `fill.py` has neither, and `run()` branches on the
+  string `"workday"`. The next ATS is a subclass, not a fourth copy of the
+  same six loops.
+- **ADR 5 — Recorded fixtures beat hand-written ones.** Tests built from markup
+  we wrote pass while the live page fails. Behaviour is recorded from the real
+  tenant once and replayed.

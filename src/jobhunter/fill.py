@@ -128,6 +128,7 @@ class FillReport:
     steps: list[str] = field(default_factory=list)
     sign_in: str = ""
     screenshot: str = ""
+    trace_path: str = ""
     submitted: bool = False
     error: str = ""
 
@@ -159,6 +160,8 @@ class FillReport:
         lines.append(f"  submitted: {'yes' if self.submitted else 'no'}")
         if self.screenshot:
             lines.append(f"  screenshot: {self.screenshot}")
+        if self.trace_path:
+            lines.append(f"  trace: {self.trace_path}")
         return "\n".join(lines)
 
 
@@ -1167,8 +1170,21 @@ def run(
         return FillReport(
             url=url,
             ats=kind,
-            error=f"no filler for {kind or 'this site'} yet; greenhouse and lever are done",
+            error=(
+                f"no filler for {kind or 'this site'} yet; "
+                f"known fillers: {', '.join(sorted(FILLERS))}"
+            ),
         )
+
+    # Read the account once, before a browser opens: the password is also the
+    # string that has to be scrubbed out of the trace.
+    email = ""
+    password = ""
+    if account is not None:
+        from . import accounts as accounts_module
+
+        email = account.email
+        password = accounts_module.password(account)
 
     state_path = None
     if account is not None and home is not None:
@@ -1176,6 +1192,17 @@ def run(
 
         state_path = accounts_module.session_path(home, account)
         state_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Every run leaves a trace: requests with secrets masked, console messages,
+    # the DOM, a screenshot and a summary. A screenshot alone cannot tell you
+    # whether the form ever sent anything.
+    trace = None
+    if home is not None:
+        from . import evidence as evidence_module
+
+        trace = evidence_module.new_trace(
+            home, f"fill-{kind or 'form'}", secrets=(password,)
+        )
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=headless)
@@ -1186,22 +1213,20 @@ def run(
             storage_state=str(state_path) if state_path and state_path.is_file() else None,
         )
         page = context.new_page()
+        report = FillReport(url=url, ats=kind)
+        if trace is not None:
+            trace.attach(context, page)
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            if trace is not None:
+                trace.note("goto", url)
             page.wait_for_timeout(1200)
-            report = FillReport(url=page.url, ats=kind)
+            report.url = page.url
             if kind != "workday":
                 report = filler().fill(page, values, ctx)
             if kind == "workday":
                 # Workday is a wizard with an account wall in front of it, so it
                 # gets the whole run to itself rather than a generic pass first.
-                password = ""
-                email = ""
-                if account is not None:
-                    from . import accounts as accounts_module
-
-                    email = account.email
-                    password = accounts_module.password(account)
                 report = Workday().fill(
                     page,
                     values,
@@ -1212,6 +1237,8 @@ def run(
                     create_account=create_account,
                     on_code=on_code,
                 )
+                if trace is not None:
+                    trace.note("account", report.sign_in or "not attempted")
                 if report.sign_in in ("created", "signed-in") and account is not None and home is not None:
                     from . import accounts as accounts_module
 
@@ -1221,6 +1248,11 @@ def run(
             report.ats = kind
             report.url = page.url
             report.required_left = required_still_empty(page)
+            if trace is not None:
+                trace.note(
+                    "filled",
+                    f"{len(report.filled)} fields, {len(report.empty_answers)} unanswerable",
+                )
 
             if state_path is not None:
                 try:
@@ -1241,14 +1273,57 @@ def run(
                 if button is None:
                     report.error = "no submit control found"
                 else:
-                    button.click()
-                    page.wait_for_timeout(3000)
-                    report.submitted = True
+                    before_url = page.url
+                    before_page = _page_signature(page)
+                    if trace is not None:
+                        trace.note("submit", "clicking the submit control")
+                    _click(page, button)
+                    moved = _until_page_moves(page, before_url, before_page)
+                    report.submitted = moved
                     report.url = page.url
+                    if not moved:
+                        # A click that was dispatched is not a submission. The
+                        # ledger is only evidence if it means "the page moved".
+                        report.error = (
+                            "the submit control was clicked but the page did not "
+                            "move; not recorded as sent"
+                        )
         except Exception as error:  # noqa: BLE001
-            report = FillReport(url=url, ats=kind, error=f"{type(error).__name__}: {error}")
+            report = FillReport(
+                url=url, ats=kind, error=f"{type(error).__name__}: {error}"
+            )
         finally:
+            if trace is not None:
+                try:
+                    report.trace_path = str(
+                        trace.save(
+                            page,
+                            outcome=report.error or report.sign_in or "no error reported",
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             context.close()
             browser.close()
 
     return report
+
+
+def _page_signature(page) -> str:
+    """A cheap fingerprint of what the page says, to notice a real change."""
+    try:
+        return page.evaluate(
+            "() => (document.body ? document.body.innerText : '').slice(0, 4000)"
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _until_page_moves(page, before_url: str, before_page: str, seconds: float = 8.0) -> bool:
+    """Did the page actually change? A dispatched click is not a submission."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if page.url != before_url or _page_signature(page) != before_page:
+            return True
+        page.wait_for_timeout(300)
+    return page.url != before_url or _page_signature(page) != before_page

@@ -133,7 +133,7 @@ def test_sign_in_toggles_off_the_create_form(site, page):
     page.goto((site / "apply.html").as_uri(), wait_until="domcontentloaded")
     workday = fill.Workday()
     workday.prepare(page, timeout_ms=10_000)
-    status = workday.sign_in(page, email="jeddahlke@gmail.com", password="hunter2")
+    status = workday.sign_in(page, email="candidate@example.com", password="hunter2")
     assert status == "signed-in"
     assert page.url.endswith("myinfo.html")
 
@@ -142,7 +142,7 @@ def test_creating_the_account_asks_for_the_code(site, page):
     page.goto((site / "apply.html").as_uri(), wait_until="domcontentloaded")
     workday = fill.Workday()
     workday.prepare(page, timeout_ms=10_000)
-    status = workday.sign_in(page, email="jeddahlke@gmail.com", password="hunter2", create=True)
+    status = workday.sign_in(page, email="candidate@example.com", password="hunter2", create=True)
     assert status == "code-needed"
     assert page.url.endswith("code.html")
 
@@ -163,7 +163,7 @@ def test_the_bot_trap_is_never_filled(site, page):
     page.goto((site / "apply.html").as_uri(), wait_until="domcontentloaded")
     workday = fill.Workday()
     workday.prepare(page, timeout_ms=10_000)
-    status = workday.sign_in(page, email="jeddahlke@gmail.com", password="hunter2")
+    status = workday.sign_in(page, email="candidate@example.com", password="hunter2")
     assert status == "signed-in"
     assert not page.url.endswith("flagged.html")
 
@@ -187,7 +187,7 @@ def test_a_click_filter_over_the_button_does_not_stop_the_run(site, page):
     """Live M&G failure: the submit click was intercepted by click_filter."""
     (site / "overlay.html").write_text(OVERLAY, encoding="utf-8")
     page.goto((site / "overlay.html").as_uri(), wait_until="domcontentloaded")
-    status = fill.Workday().sign_in(page, email="jeddahlke@gmail.com", password="hunter2")
+    status = fill.Workday().sign_in(page, email="candidate@example.com", password="hunter2")
     assert status == "signed-in"
     assert page.url.endswith("myinfo.html")
 
@@ -212,7 +212,7 @@ def test_a_swallowed_submit_click_falls_back_to_enter(site, page):
     """Live M&G failure: the click landed, the form did not move, no error shown."""
     (site / "dead.html").write_text(DEAD_CLICK, encoding="utf-8")
     page.goto((site / "dead.html").as_uri(), wait_until="domcontentloaded")
-    status = fill.Workday().sign_in(page, email="jeddahlke@gmail.com", password="hunter2")
+    status = fill.Workday().sign_in(page, email="candidate@example.com", password="hunter2")
     assert status == "signed-in"
     assert page.url.endswith("myinfo.html")
 
@@ -239,8 +239,8 @@ def test_typing_is_verified_and_falls_back_to_keystrokes(site, page):
     (site / "controlled.html").write_text(CONTROLLED, encoding="utf-8")
     page.goto((site / "controlled.html").as_uri(), wait_until="domcontentloaded")
     field = page.query_selector("#stubborn")
-    fill._type(field, "jeddahlke@gmail.com")
-    assert field.input_value() == "jeddahlke@gmail.com"
+    fill._type(field, "candidate@example.com")
+    assert field.input_value() == "candidate@example.com"
 
 
 def test_the_wizard_runs_the_whole_way_to_my_information(site, page):
@@ -250,7 +250,7 @@ def test_the_wizard_runs_the_whole_way_to_my_information(site, page):
         fill.Values(first_name="Jed", last_name="Dahlke"),
         None,
         advance=True,
-        email="jeddahlke@gmail.com",
+        email="candidate@example.com",
         password="hunter2",
     )
     assert report.error == ""

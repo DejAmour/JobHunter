@@ -25,11 +25,11 @@ def test_slug_is_stable_and_url_safe():
 
 
 def test_registry_round_trip_keeps_the_email_and_drops_the_password(tmp_path):
-    account = accounts.add(tmp_path, "M&G", "jeddahlke@gmail.com", password="")
+    account = accounts.add(tmp_path, "M&G", "candidate@example.com", password="")
     loaded = accounts.load(tmp_path)
     assert loaded == [account]
     text = accounts.path_for(tmp_path).read_text(encoding="utf-8")
-    assert "jeddahlke@gmail.com" in text
+    assert "candidate@example.com" in text
     assert "Passwords are not here" in text
     assert "hunter2" not in text
 
@@ -92,7 +92,7 @@ def test_password_survives_a_round_trip_through_the_os_store():
 
 @pytest.mark.skipif(not credentials.available(), reason="no credential store on this machine")
 def test_password_is_reachable_from_an_account_and_not_from_the_file(tmp_path):
-    account = accounts.add(tmp_path, "M&G", "jeddahlke@gmail.com", password="correct horse")
+    account = accounts.add(tmp_path, "M&G", "candidate@example.com", password="correct horse")
     try:
         assert accounts.has_password(account)
         assert accounts.password(account) == "correct horse"
@@ -116,7 +116,7 @@ SIGN_IN_PAGE = """
   document.querySelector("[data-automation-id=signInButton]").addEventListener("click", function () {
     var email = document.querySelector("[data-automation-id=email]").value;
     var password = document.querySelector("[data-automation-id=password]").value;
-    if (email === "jeddahlke@gmail.com" && password === "hunter2") {
+    if (email === "candidate@example.com" && password === "hunter2") {
       location.href = "step2.html";
     } else {
       document.querySelector("[data-automation-id=errorMessage]").textContent =
@@ -210,14 +210,14 @@ def page():
 
 def test_sign_in_fills_the_form_and_leaves_the_page(site, page):
     page.goto((site / "signin.html").as_uri(), wait_until="domcontentloaded")
-    status = fill.Workday().sign_in(page, email="jeddahlke@gmail.com", password="hunter2")
+    status = fill.Workday().sign_in(page, email="candidate@example.com", password="hunter2")
     assert status == "signed-in"
     assert page.url.endswith("step2.html")
 
 
 def test_wrong_password_is_named_rather_than_retried(site, page):
     page.goto((site / "signin.html").as_uri(), wait_until="domcontentloaded")
-    status = fill.Workday().sign_in(page, email="jeddahlke@gmail.com", password="wrong")
+    status = fill.Workday().sign_in(page, email="candidate@example.com", password="wrong")
     assert status == "bad-password"
 
 
@@ -236,7 +236,7 @@ def test_create_account_walks_create_then_code_then_in(site, page):
         return "K7Q2P9"
 
     status = fill.Workday().sign_in(
-        page, email="jeddahlke@gmail.com", password="hunter2", create=True, on_code=on_code
+        page, email="candidate@example.com", password="hunter2", create=True, on_code=on_code
     )
     assert status == "created"
     assert asked == [True]
@@ -246,7 +246,7 @@ def test_create_account_walks_create_then_code_then_in(site, page):
 def test_create_account_without_a_mailbox_asks_for_the_code(site, page):
     page.goto((site / "create.html").as_uri(), wait_until="domcontentloaded")
     status = fill.Workday().sign_in(
-        page, email="jeddahlke@gmail.com", password="hunter2", create=True
+        page, email="candidate@example.com", password="hunter2", create=True
     )
     assert status == "code-needed"
 
@@ -262,7 +262,7 @@ def test_the_wizard_stops_at_the_account_wall_without_one(site, page):
 
 @pytest.mark.skipif(not credentials.available(), reason="no credential store on this machine")
 def test_a_run_signs_in_and_keeps_the_session_for_next_time(site):
-    account = accounts.add(site, "Fixture Employer", "jeddahlke@gmail.com", password="hunter2")
+    account = accounts.add(site, "Fixture Employer", "candidate@example.com", password="hunter2")
     try:
         report = fill.run(
             (site / "signin.html").as_uri(),
@@ -282,7 +282,7 @@ def test_a_run_signs_in_and_keeps_the_session_for_next_time(site):
 
 
 def test_the_second_run_reuses_the_saved_session(site):
-    account = accounts.add(site, "Second Employer", "jeddahlke@gmail.com", password="hunter2")
+    account = accounts.add(site, "Second Employer", "candidate@example.com", password="hunter2")
     state = accounts.session_path(site, account)
     state.parent.mkdir(parents=True, exist_ok=True)
     # A context with no cookies still proves the plumbing: the file is handed to

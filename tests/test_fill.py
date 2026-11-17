@@ -90,6 +90,33 @@ def test_unknown_board_says_so_rather_than_guessing():
     assert "no filler" in report.error
 
 
+DEAD_SUBMIT = """<!doctype html><html><body>
+  <form onsubmit="return false">
+    <button type="submit">Submit application</button>
+  </form>
+</body></html>"""
+
+
+def test_a_click_that_changes_nothing_is_not_recorded_as_submitted(tmp_path):
+    """The ledger is evidence, so 'submitted' has to mean the page moved."""
+    page_path = tmp_path / "dead.html"
+    page_path.write_text(DEAD_SUBMIT, encoding="utf-8")
+
+    report = fill.run(
+        page_path.as_uri(),
+        values(),
+        ats="greenhouse",
+        headless=True,
+        submit=True,
+        home=tmp_path,
+    )
+
+    assert report.submitted is False
+    assert "did not move" in report.error
+    assert Path(report.trace_path).is_dir()
+    assert (Path(report.trace_path) / "summary.txt").is_file()
+
+
 @pytest.mark.skipif(not CV.is_file(), reason="CV not built")
 def test_workday_my_information_fixture(tmp_path):
     url = (FIXTURES / "workday" / "my-information.html").as_uri()

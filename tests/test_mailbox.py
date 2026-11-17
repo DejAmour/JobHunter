@@ -33,7 +33,7 @@ def test_no_mailbox_configured_means_no_code_is_fetched():
 
 
 def test_the_address_defaults_to_the_profile_email():
-    assert mailbox.address({"profile": {"email": "jeddahlke@gmail.com"}}) == "jeddahlke@gmail.com"
+    assert mailbox.address({"profile": {"email": "candidate@example.com"}}) == "candidate@example.com"
     assert mailbox.address({"mail": {"address": "other@example.com"}}) == "other@example.com"
 
 

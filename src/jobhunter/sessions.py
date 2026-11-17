@@ -112,6 +112,15 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
     target = accounts_module.session_path(home, account)
     target.parent.mkdir(parents=True, exist_ok=True)
 
+    from . import evidence as evidence_module
+
+    # Same bargain as `fill`: whatever happens, the run leaves a record — and
+    # the password is scrubbed out of it before anything is written.
+    trace = evidence_module.new_trace(home, f"login-{account.slug}", secrets=(password,))
+    trace_path = None
+    announce_trace = False
+    outcome = "did not finish"
+
     on_code = None
     if mailbox.available(config):
         from datetime import datetime
@@ -136,15 +145,19 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
             storage_state=str(target) if target.is_file() else None,
         )
         page = context.new_page()
+        trace.attach(context, page)
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+            trace.note("goto", url)
             page.wait_for_timeout(1500)
             workday = form_fill.Workday()
             workday.start(page)
+            trace.note("step", workday.step(page) or "no form detected")
             status = workday.sign_in(
                 page, email=account.email, password=password, create=create, on_code=on_code
             )
             print(f"  {status}")
+            trace.note("sign_in", status)
 
             # An account may already exist from an earlier attempt, or may not
             # exist at all; that is a door problem, not a failure. Try the other
@@ -184,6 +197,8 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
                 )
 
             if status not in ("signed-in", "created"):
+                outcome = status
+                announce_trace = True
                 print(f"  did not get through: {status}")
                 if status == "bad-password":
                     print(f'  refresh it: `jobhunter account add --firm "{account.firm}"`')
@@ -195,6 +210,7 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
             if tenant:
                 accounts_module.upsert_tenant(home, account.firm, tenant)
             context.storage_state(path=str(target))
+            outcome = "signed-in"
             print(f"  session saved: {target.name}")
             print("  the next `fill` at this employer skips the sign-in.")
             return 0
@@ -202,6 +218,8 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
             # A traceback is useless here: the useful part is the screenshot and
             # the one line Playwright complained about.
             first = (str(error).strip().splitlines() or [""])[0][:220]
+            outcome = f"{type(error).__name__}: {first}"
+            announce_trace = True
             print(f"\nstopped: {type(error).__name__}: {first}")
             try:
                 shot = target.with_suffix(".png")
@@ -211,6 +229,17 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
                 pass
             return 1
         finally:
+            try:
+                trace_path = trace.save(page, outcome=outcome)
+            except Exception:  # noqa: BLE001
+                trace_path = None
             context.close()
             browser.close()
+            # Printed here, not after the block: every path out of the `try`
+            # returns, so anything below it would never run.
+            if trace_path is not None:
+                print(f"\n  trace: {trace_path}")
+                if announce_trace:
+                    for line in trace.summary().splitlines():
+                        print(f"  {line}")
 

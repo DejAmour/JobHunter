@@ -399,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"{pack.job['company']}-{pack.job['title']}"
             ),
             account=account,
-            home=home() if account is not None else None,
+            home=home(),
             create_account=bool(create_account),
             on_code=fetch_code,
         )
