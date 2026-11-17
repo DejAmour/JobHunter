@@ -237,3 +237,76 @@ def for_url(home: Path, url: str) -> Account | None:
         if account.tenant and account.tenant.split(".")[0] == tenant_host:
             return account
     return None
+
+
+# --- reading a password manager's export --------------------------------
+#
+# Chrome and Google Password Manager export a CSV (name,url,username,password,
+# note). There is no API to ask them for a password, and trying to read the
+# browser's own store would be circumventing a security boundary, so the export
+# file is the supported route. That file holds *every* saved password, which is
+# why this takes exactly one employer at a time and refuses to guess.
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+
+def csv_rows(path: Path) -> list[dict[str, str]]:
+    """Rows of a manager export, with headers lower-cased and values trimmed."""
+    with Path(path).open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        return [
+            {(key or "").strip().lower(): (value or "").strip() for key, value in row.items()}
+            for row in reader
+        ]
+
+
+def match_row(rows: list[dict[str, str]], account: Account) -> dict[str, str] | None:
+    """The one row that is this employer's login, or None.
+
+    Tenant first (a Workday URL is unambiguous), then the email together with the
+    firm's name, then a firm name long enough to be distinctive on its own. "M&G"
+    normalises to "mg", which is two characters and matches almost anything, so
+    a short name alone is never enough.
+    """
+    firm = _norm(account.firm)
+    email = (account.email or "").lower()
+
+    for row in rows:
+        blob = f"{row.get('name', '')} {row.get('url', '')}".lower()
+        if account.tenant and _norm(account.tenant) in _norm(blob):
+            return row
+
+    for row in rows:
+        blob = f"{row.get('name', '')} {row.get('url', '')} {row.get('username', '')}".lower()
+        if email and email in blob and firm and firm in _norm(blob):
+            return row
+
+    if len(firm) >= 3:
+        for row in rows:
+            if firm in _norm(f"{row.get('name', '')} {row.get('url', '')}"):
+                return row
+
+    return None
+
+
+def import_password(home: Path, path: Path, firm: str, *, ats: str = "") -> tuple[Account, str] | None:
+    """Store the password a manager export holds for one employer.
+
+    Returns the account and the row's label so the caller can show what it took,
+    or None when there was no match. Nothing is imported on a guess.
+    """
+    account = find(home, firm, ats)
+    if account is None:
+        return None
+    row = match_row(csv_rows(path), account)
+    if row is None:
+        return None
+    password = row.get("password", "")
+    if not password:
+        return None
+    credentials.store(
+        account.ats, account.slug, credentials.Secret(username=row.get("username") or account.email, password=password)
+    )
+    label = row.get("name") or row.get("url") or "(unnamed row)"
+    return account, label

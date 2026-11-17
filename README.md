@@ -62,6 +62,25 @@ characters, because an account that locks sends you back to a reset form with a
 text field. The export is plaintext on purpose: import it into Bitwarden or
 KeePassXC, then delete it. The tool keeps using the credential store either way.
 
+### If you use Google Password Manager
+
+Chrome will offer to save a generated password, and that is fine — but nothing
+can read it back. There is no API for it, and automating a browser's own
+credential store would mean defeating a security boundary, so this tool does not
+try. Two supported bridges instead:
+
+```
+# you let Chrome generate it, then hand that one over
+jobhunter account import --csv passwords.csv --firm "M&G"
+
+# or this generates it, and you save it in Chrome the first time you sign in
+jobhunter account add --firm "M&G" --generate
+```
+
+For the first: Google Password Manager → Settings → Export passwords. That file
+contains **every** password you have saved, so the importer takes one employer at
+a time and refuses when it cannot identify the row; then delete the file.
+
 ## Reading your inbox
 
 Verification codes — and password-reset links when an account locks — arrive by

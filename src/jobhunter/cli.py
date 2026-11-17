@@ -138,6 +138,11 @@ def main(argv: list[str] | None = None) -> int:
         "export", help="write every stored password to a CSV a password manager can import"
     )
     account_export.add_argument("--out", default="", help="defaults to ~/.jobhunter/passwords.csv")
+    account_import = account_commands.add_parser(
+        "import", help="take one employer's password from a manager's CSV export"
+    )
+    account_import.add_argument("--csv", required=True, help="the export from Chrome or your manager")
+    account_import.add_argument("--firm", required=True)
     account_remove = account_commands.add_parser("remove", help="forget an employer account")
     account_remove.add_argument("--firm", required=True)
 
@@ -541,6 +546,23 @@ def main(argv: list[str] | None = None) -> int:
             print(f"wrote {rows} password(s) to {out}")
             print("this file is plaintext. Import it into your password manager, then delete it.")
             return 0 if rows else 1
+
+        if args.account_command == "import":
+            source = Path(args.csv).expanduser()
+            if not source.is_file():
+                print(f"no such file: {source}")
+                return 2
+            taken = accounts_module.import_password(home(), source, args.firm, ats=args.ats)
+            if taken is None:
+                print(f"no row for {args.firm!r} in {source}")
+                print("nothing stored. check the account exists first:")
+                print(f'  jobhunter account add --firm "{args.firm}" --generate')
+                return 1
+            account, label = taken
+            print(f"imported {account}")
+            print(f"  from row: {label}")
+            print("  delete the CSV now: it holds every password your manager has exported.")
+            return 0
 
         if args.account_command == "remove":
             if accounts_module.remove(home(), args.firm):
