@@ -101,6 +101,24 @@ def test_missing_fact_is_reported_not_invented():
     assert answer.confidence == "review"
 
 
+def test_salary_is_offered_but_flagged_because_it_depends_on_the_role():
+    context = ctx(answers={"salary_expectation": "£55,000 - £60,000"})
+    answer = questions.answer_for("What are your salary expectations?", context)
+    assert answer.value == "£55,000 - £60,000"
+    # A number about money is always worth a second look before it is sent.
+    assert answer.confidence == "review"
+
+
+def test_salary_is_left_alone_on_an_internship():
+    context = ctx(
+        answers={"salary_expectation": "£55,000 - £60,000"},
+        role="Asset Management: Public Fixed Income Internship",
+    )
+    answer = questions.answer_for("Salary expectation", context)
+    assert answer.value == ""
+    assert "internship" in answer.reason
+
+
 def test_protected_questions_are_never_answered():
     for label in ("What is your gender?", "Ethnicity", "Veteran status", "Do you have a disability?"):
         answer = questions.answer_for(label, ctx())

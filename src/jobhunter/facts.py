@@ -118,6 +118,16 @@ def merge(config: dict, home: Path) -> dict:
     answers = dict(config.get("answers") or {})
     answers.update({key: value for key, value in (facts.get("answers") or {}).items() if value})
     merged["answers"] = answers
+
+    # The sponsorship fact is a legal declaration, and the engine reads it from
+    # [candidate], so the fact sheet has to reach that table too rather than sit
+    # in the answer bank unused.
+    option = str(answers.get("needs_sponsorship", "")).strip().lower()
+    if option.startswith(("yes", "y ", "true")):
+        merged["candidate"] = {**(config.get("candidate") or {}), "needs_sponsorship": True}
+    elif option.startswith(("no", "n ", "false")):
+        merged["candidate"] = {**(config.get("candidate") or {}), "needs_sponsorship": False}
+
     if facts.get("disclosures"):
         merged["disclosures"] = facts["disclosures"]
     return merged

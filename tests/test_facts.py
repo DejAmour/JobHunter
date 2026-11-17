@@ -78,3 +78,17 @@ def test_fact_sheet_file_is_not_in_the_repository():
     root = Path(__file__).resolve().parents[1]
     ignored = (root / ".gitignore").read_text(encoding="utf-8")
     assert "facts.toml" in ignored or "*.toml" in ignored
+
+
+def test_sponsorship_answer_reaches_the_candidate_table(tmp_path):
+    facts.save(tmp_path, {"answers": {"needs_sponsorship": "No"}})
+    config = {"candidate": {"needs_sponsorship": True, "years_experience": 3}}
+    merged = facts.merge(config, tmp_path)
+    assert merged["candidate"]["needs_sponsorship"] is False
+    assert merged["candidate"]["years_experience"] == 3
+
+
+def test_sponsorship_yes_is_taken_at_face_value(tmp_path):
+    facts.save(tmp_path, {"answers": {"needs_sponsorship": "Yes"}})
+    merged = facts.merge({"candidate": {}}, tmp_path)
+    assert merged["candidate"]["needs_sponsorship"] is True

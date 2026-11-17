@@ -187,6 +187,17 @@ def _rule_authorised(label: str, ctx: Context) -> Answer:
     return YES
 
 
+def _rule_salary(label: str, ctx: Context) -> Answer:
+    # An internship pays a stipend, and a salary expectation on a summer
+    # placement reads as someone who misread the advert. Leave it for a human.
+    if re.search(r"\bintern(ship)?s?\b|\bplacement\b|\bsummer\b|work experience", ctx.role or "", re.I):
+        return Answer("", "review", "internship or placement: no salary expectation stated")
+    value = ctx.get("salary_expectation")
+    if not value:
+        return Answer("", "review", "no salary expectation in the answer bank")
+    return Answer(value, "review", "answer bank: salary_expectation; check it suits this role")
+
+
 RULES: tuple[tuple[re.Pattern[str], object], ...] = (
     (
         re.compile(r"(require|need).{0,30}sponsor|sponsorship", re.I),
@@ -202,7 +213,7 @@ RULES: tuple[tuple[re.Pattern[str], object], ...] = (
     ),
     (
         re.compile(r"salary|compensation expectation|remuneration|day rate", re.I),
-        lambda label, ctx: _from_bank(ctx, "salary_expectation", "no salary expectation in the answer bank"),
+        _rule_salary,
     ),
     (
         re.compile(r"relocat", re.I),
