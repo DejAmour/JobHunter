@@ -81,6 +81,23 @@ For the first: Google Password Manager → Settings → Export passwords. That f
 contains **every** password you have saved, so the importer takes one employer at
 a time and refuses when it cannot identify the row; then delete the file.
 
+### When an account locks
+
+Workday locks an account after repeated failed sign-ins, so the tool stops at the
+first lock rather than trying the other door — retrying is what turns a reset
+into a support ticket.
+
+```
+jobhunter account recover --firm "M&G"
+```
+
+It opens the tenant, presses *Forgot your password*, waits for the reset mail,
+opens the link in the same window, and prints a generated password that meets the
+form's printed rules. You paste it twice; it then proves the password by signing
+in with it, and stores it only if that succeeds. Filling the reset form itself is
+not automated yet: those selectors have to be recorded from a real page first,
+which is the same discipline the account wall needed.
+
 ## Reading your inbox
 
 Verification codes — and password-reset links when an account locks — arrive by

@@ -31,6 +31,19 @@ def load(path: Path) -> dict:
         return tomllib.load(handle)
 
 
+def workday_url(store: Path, firm: str, explicit: str = "") -> str:
+    """Newest Workday posting stored for this employer, or the one given."""
+    if explicit:
+        return explicit
+    with db.connect(store) as connection:
+        row = connection.execute(
+            "SELECT url FROM jobs WHERE company LIKE ? AND url LIKE '%myworkdayjobs%' "
+            "ORDER BY id DESC LIMIT 1",
+            (f"%{firm}%",),
+        ).fetchone()
+    return row["url"] if row else ""
+
+
 def settings(config: dict) -> outreach.Settings:
     smtp = config.get("smtp", {})
     limits = config.get("limits", {})
@@ -145,6 +158,12 @@ def main(argv: list[str] | None = None) -> int:
     account_import.add_argument("--firm", required=True)
     account_remove = account_commands.add_parser("remove", help="forget an employer account")
     account_remove.add_argument("--firm", required=True)
+    account_recover = account_commands.add_parser(
+        "recover", help="walk a locked or forgotten Workday account back to a sign-in"
+    )
+    account_recover.add_argument("--firm", required=True)
+    account_recover.add_argument("--url", default="", help="a Workday page to start from")
+    account_recover.add_argument("--wait", type=float, default=180, help="seconds to wait for the email")
 
     mail_parser = commands.add_parser("mail", help="read verification codes from your inbox")
     mail_commands = mail_parser.add_subparsers(dest="mail_command")
@@ -460,15 +479,7 @@ def main(argv: list[str] | None = None) -> int:
             if account is None:
                 print('which employer? try `jobhunter login --site workday --firm "M&G"`')
                 return 2
-            url = args.url
-            if not url:
-                with db.connect(store) as connection:
-                    row = connection.execute(
-                        "SELECT url FROM jobs WHERE company LIKE ? AND url LIKE '%myworkdayjobs%' "
-                        "ORDER BY id DESC LIMIT 1",
-                        (f"%{account.firm}%",),
-                    ).fetchone()
-                url = row["url"] if row else ""
+            url = workday_url(store, account.firm, args.url)
             if not url:
                 print("no Workday posting found for that employer; pass --url")
                 return 2
@@ -563,6 +574,21 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  from row: {label}")
             print("  delete the CSV now: it holds every password your manager has exported.")
             return 0
+
+        if args.account_command == "recover":
+            from . import sessions
+
+            account = accounts_module.find(home(), args.firm, ats="workday")
+            if account is None:
+                print(f'no Workday account for {args.firm!r}: `jobhunter account add --firm "{args.firm}"`')
+                return 2
+            url = workday_url(store, account.firm, args.url)
+            if not url:
+                print("no Workday posting found for that employer; pass --url")
+                return 2
+            return sessions.recover_workday(
+                home(), config, account, url=url, wait_seconds=args.wait
+            )
 
         if args.account_command == "remove":
             if accounts_module.remove(home(), args.firm):

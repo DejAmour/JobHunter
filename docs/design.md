@@ -254,3 +254,14 @@ tried or considered and the reason it lost would otherwise be rediscovered.
   accounts; `account export` writes a plaintext CSV for Bitwarden or KeePassXC
   so the human copy is a real manager, not a notes file. Mail access exists only
   to read a code or a reset link, and never marks a message read.
+- **ADR 7 — Recovery is assisted, not automatic.** The full loop (forgot
+  password → open the email link → set a new password → sign in) is mechanically
+  buildable, and rejected as the default. It runs once per employer at most, it
+  is the single most bot-like thing the tool could do, and every unmapped form
+  costs a live attempt. So `account recover` does the tedious parts — find the
+  link, generate a compliant password, verify it by signing in, store it only on
+  success — and leaves two keystrokes and one submit to the human. Automate the
+  last mile only after recording the real reset form.
+- **ADR 8 — A lock is terminal for the run.** Repeated sign-in attempts are what
+  cause locks, so the tool stops at the first "account locked" and says so,
+  rather than trying the other door.

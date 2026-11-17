@@ -21,6 +21,31 @@ SITES = {
     "linkedin": "https://www.linkedin.com/login",
 }
 
+# A locked account is not a wrong password. Retrying turns a five-minute reset
+# into a support ticket, so the first time the page says one of these, stop.
+LOCK_WORDS = (
+    "account locked",
+    "account has been locked",
+    "account is locked",
+    "account disabled",
+    "account has been disabled",
+    "account suspended",
+    "temporarily locked",
+)
+
+
+def locked_text(text: str) -> bool:
+    """Does this page text say the account is locked rather than wrong?"""
+    lowered = (text or "").lower()
+    return any(word in lowered for word in LOCK_WORDS)
+
+
+def page_text(page) -> str:
+    try:
+        return page.inner_text("body") or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
 
 def path_for(site: str, home: Path) -> Path:
     return home / "sessions" / f"{site}.json"
@@ -163,6 +188,18 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
             print(f"  {status}")
             trace.note("sign_in", status)
 
+            # Locked is a different failure from wrong. Stop immediately.
+            if locked_text(page_text(page)):
+                status = "account locked"
+                outcome = status
+                announce_trace = True
+                print("  the account is locked, not merely wrong: not retrying")
+                print(
+                    f'  recover it: `jobhunter account recover --firm "{account.firm}"`'
+                )
+                page.screenshot(path=str(target.with_suffix(".png")), full_page=True)
+                return 1
+
             # An account may already exist from an earlier attempt, or may not
             # exist at all; that is a door problem, not a failure. Try the other
             # door once rather than making a person guess with --create. A wrong
@@ -251,4 +288,150 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
                 if announce_trace:
                     for line in trace.summary().splitlines():
                         print(f"  {line}")
+
+
+def recover_workday(
+    home: Path,
+    config: dict,
+    account,
+    *,
+    url: str = "",
+    wait_seconds: float = 180,
+) -> int:
+    """Walk a locked or forgotten Workday account back to a working sign-in.
+
+    Semi-automatic on purpose, and the stopping point is deliberate.
+
+    What it does: opens the tenant in a real window, presses *Forgot your
+    password*, waits for the reset mail, opens that link in the same window, and
+    generates a password meeting the rules the form prints. You paste it twice
+    and submit. It then proves the password by signing in with it, and stores it
+    only if the sign-in succeeds — so the credential store never holds a guess.
+
+    What it does not do yet: fill the reset form itself. Those selectors have to
+    be recorded from a real page first. Six commits went on guessing at Workday's
+    account wall, and the reset form is the same class of problem.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("playwright is not installed: pip install playwright && playwright install chromium")
+        return 2
+
+    from datetime import datetime
+
+    from . import accounts as accounts_module
+    from . import evidence as evidence_module
+    from . import fill as form_fill
+    from . import mailbox
+
+    if not url:
+        print("no Workday page to start from; pass --url")
+        return 2
+
+    password = accounts_module.generate_password()
+    target = accounts_module.session_path(home, account)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    trace = evidence_module.new_trace(home, f"recover-{account.slug}")
+    trace_path = None
+    outcome = "did not finish"
+
+    print(f"{account.firm}: {account.email}")
+    print("1. opening the tenant and pressing 'Forgot your password'")
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=False)
+        context = browser.new_context(locale="en-GB", viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        trace.attach(context, page)
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+            workday = form_fill.Workday()
+            workday.prepare(page)
+            trace.note("step", workday.step(page) or "no form detected")
+
+            forgot = workday._clickable(
+                page,
+                (
+                    "[data-automation-id='forgotPasswordLink']",
+                    "a[data-automation-id='forgotPasswordLink']",
+                    "button[data-automation-id='forgotPasswordLink']",
+                ),
+            )
+            if forgot is None:
+                print("   no 'Forgot your password' link found; click it yourself in the window")
+            else:
+                form_fill._click(page, forgot)
+                page.wait_for_timeout(3000)
+                print("   pressed it")
+
+            print(f"2. waiting up to {int(wait_seconds)}s for the reset email")
+            found = mailbox.latest_link(
+                config,
+                since=datetime.now(),
+                hints=("workday", account.firm.lower()),
+                tenant=account.firm,
+                wait_seconds=wait_seconds,
+            )
+            if found is not None:
+                print(f"   email: {found.subject}")
+                page.goto(found.url, wait_until="domcontentloaded", timeout=60_000)
+                page.wait_for_timeout(2000)
+                print("   opened the link in this window")
+            else:
+                print("   no link found (has `jobhunter mail setup` been run?)")
+                print("   open the email yourself in the window, then press Enter on the form")
+                try:
+                    input("")
+                except (EOFError, KeyboardInterrupt):
+                    print("cancelled")
+                    return 1
+
+            print()
+            print("3. set this password. It is generated, meets the printed rules, and")
+            print("   avoids lookalike characters so it can be typed by hand:")
+            print()
+            print(f"   {password}")
+            print()
+            print("   type it into both boxes in the window and submit the form.")
+            try:
+                input("press Enter once the reset has been accepted: ")
+            except (EOFError, KeyboardInterrupt):
+                print("\ncancelled")
+                return 1
+
+            print("4. proving the password by signing in with it")
+            status = workday.sign_in(page, email=account.email, password=password, create=False)
+            print(f"   {status}")
+
+            if status in ("signed-in", "created"):
+                accounts_module.add(
+                    home, account.firm, account.email, ats=account.ats, password=password
+                )
+                context.storage_state(path=str(target))
+                outcome = "recovered"
+                print("   stored, and the session is saved")
+                print("   the next `fill` at this employer skips the sign-in")
+                return 0
+
+            outcome = status
+            print("   the new password did not sign in, so it was NOT stored")
+            print("   the trace below shows what the page said")
+            return 1
+        except Exception as error:  # noqa: BLE001
+            first = (str(error).strip().splitlines() or [""])[0][:220]
+            outcome = f"{type(error).__name__}: {first}"
+            print(f"\nstopped: {type(error).__name__}: {first}")
+            return 1
+        finally:
+            try:
+                trace_path = trace.save(page, outcome=outcome)
+            except Exception:  # noqa: BLE001
+                trace_path = None
+            context.close()
+            browser.close()
+            if trace_path is not None:
+                print(f"\n  trace: {trace_path}")
+                for line in trace.summary().splitlines():
+                    print(f"  {line}")
 
