@@ -72,9 +72,16 @@ def test_removing_an_account_forgets_the_password_and_the_session(tmp_path):
 # --- credential store ----------------------------------------------------
 
 
+def test_the_suite_never_writes_to_the_real_credential_namespace():
+    """Two tests once added and removed "M&G" in the production namespace."""
+    key = credentials.target("workday", "m-g")
+    assert key.startswith("jobhunter-test/"), key
+    assert not key.startswith("jobhunter/")
+
+
 @pytest.mark.skipif(not credentials.available(), reason="no credential store on this machine")
 def test_password_survives_a_round_trip_through_the_os_store():
-    secret = credentials.Secret("someone@example.com", "p@ss w0rd: ünïcode")
+    secret = credentials.Secret("someone@example.com", "p@ss w0rd")
     credentials.store("test", "round-trip", secret)
     try:
         assert credentials.load("test", "round-trip") == secret

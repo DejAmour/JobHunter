@@ -18,6 +18,7 @@ loudly rather than silently writing a password to disk in plain text.
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import dataclass
 
@@ -38,8 +39,18 @@ class Secret:
     password: str
 
 
+def _prefix() -> str:
+    """The namespace inside the store.
+
+    Tests set JOBHUNTER_CREDENTIALS=jobhunter-test so they can add and remove
+    employers without touching the ones in use. They did touch them once: a test
+    that registered "M&G" and then removed it deleted the real M&G password.
+    """
+    return os.environ.get("JOBHUNTER_CREDENTIALS", PREFIX)
+
+
 def target(scope: str, slug: str) -> str:
-    return f"{PREFIX}/{scope}/{slug}"
+    return f"{_prefix()}/{scope}/{slug}"
 
 
 # --- Windows Credential Manager ------------------------------------------
