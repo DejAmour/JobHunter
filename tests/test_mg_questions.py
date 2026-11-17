@@ -70,6 +70,19 @@ LIVE = (
         "How did you hear about the M&G graduate/internship programme?",
         "Company website",
     ),
+    (
+        "Please select your current right to work / visa status",
+        "UK citizen",
+    ),
+    (
+        "M&G is a proud to be a Disability Confident Leader, and we welcome "
+        "applications from candidates with long-term health conditions and "
+        "disabilities. As part of this commitment, candidates who meet the "
+        "minimum criteria for the role and choose to 'opt in' to the scheme when "
+        "applying will be guaranteed participation in the first stage of our "
+        "assessment process. Please confirm here if you would like to 'opt in'.",
+        "No",
+    ),
 )
 
 
@@ -91,3 +104,23 @@ def test_the_visa_question_is_not_answered_by_the_generic_sponsorship_rule():
     answer = questions.answer_for(text, CTX)
     assert answer is not None
     assert answer.value == "Yes"
+
+
+def test_the_disability_scheme_question_is_answered_despite_the_protected_rule():
+    """Its own wording says "disability"; the question is whether to join."""
+    text = LIVE[-1][0]
+    assert questions.PROTECTED.search(text) is not None
+    answer = questions.answer_for(text, CTX)
+    assert answer is not None
+    assert answer.value == "No"
+    assert answer.confidence == "certain"
+
+
+def test_a_disability_question_without_a_stored_answer_stays_protected():
+    """Nothing is inferred: no answer in the bank means no answer on the form."""
+    empty = questions.Context(answers={}, candidate={})
+    text = "Do you consider yourself to have a disability?"
+    answer = questions.answer_for(text, empty)
+    assert answer is not None
+    assert answer.value == ""
+    assert "protected" in answer.reason

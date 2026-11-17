@@ -120,3 +120,29 @@ def test_a_bachelors_abbreviation_does_not_take_masters():
 def test_a_degree_with_no_match_returns_nothing():
     picked = choices.choose("Degree", DEGREES, "HND")
     assert picked is None
+
+
+def test_a_visa_status_list_is_matched_by_meaning_not_wording():
+    offered = [
+        "I require sponsorship to work in the UK",
+        "I am a UK citizen",
+        "I hold a graduate visa",
+    ]
+    picked = choices.choose(
+        "Please select your current right to work / visa status",
+        offered,
+        "UK citizen",
+    )
+    assert picked is not None
+    assert picked[0] == "I am a UK citizen"
+    assert "preference" in picked[1]
+
+
+def test_a_sponsorship_option_is_never_chosen_for_a_citizen():
+    offered = ["I require sponsorship to work in the UK", "I hold a student visa"]
+    picked = choices.choose(
+        "Please select your current right to work / visa status",
+        offered,
+        "UK citizen",
+    )
+    assert picked is None

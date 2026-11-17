@@ -133,6 +133,45 @@ class FillReport:
     submitted: bool = False
     error: str = ""
 
+    def dedupe(self) -> None:
+        """Each field is reported once, in the order it was handled.
+
+        Both the Workday widget filler and the generic question engine see the
+        same controls on Application Questions, so without this every field
+        appears twice and the report reads as if twice as much went wrong.
+        """
+        seen: set[str] = set()
+        filled: list[str] = []
+        for name in self.filled:
+            if name not in seen:
+                seen.add(name)
+                filled.append(name)
+        self.filled = filled
+
+        seen = set()
+        empty: list[str] = []
+        for name in self.empty_answers:
+            if name not in seen:
+                seen.add(name)
+                empty.append(name)
+        self.empty_answers = empty
+
+        seen = set()
+        review: list[tuple[str, str]] = []
+        filled = " | ".join(self.filled)
+        for question, reason in self.questions_review:
+            if question in seen:
+                continue
+            # A field the widget filler answered must not also appear as a
+            # question it could not answer: the generic engine sees the same
+            # controls and reports failures for fields already filled.
+            head = question[:40]
+            if head and head in filled:
+                continue
+            seen.add(question)
+            review.append((question, reason))
+        self.questions_review = review
+
     def summary(self) -> str:
         lines = [f"{self.ats or 'unknown ats'}: {self.url}"]
         if self.error:
@@ -360,9 +399,26 @@ class Workday:
                 "#signInPage",
             ),
         ),
-        # Both Workday generations, live: the older "Section_field" automation
-        # ids and the current "name--legalName--firstName" ids. Recorded from
-        # the M&G tenant, where the newer form is the one that renders.
+        # Page-level ids first. Workday keeps the previous step mounted but
+        # hidden, and a hidden copy of an education year input made Voluntary
+        # Disclosures look like My Experience. The page container cannot be
+        # confused with another page.
+        (
+            "disclosures",
+            (
+                "[data-automation-id='applyFlowVoluntaryDisclosuresPage']",
+                "[data-automation-id='voluntaryDisclosures']",
+                "[data-automation-id='selfIdentify']",
+            ),
+        ),
+        (
+            "questions",
+            (
+                "[data-automation-id='applyFlowPrimaryQuestionsPage']",
+                "[data-automation-id='applicationQuestions']",
+                "[data-automation-id='questionnaire']",
+            ),
+        ),
         (
             "my-information",
             (
@@ -372,25 +428,24 @@ class Workday:
                 "#firstName",
             ),
         ),
-        ("my-experience", ("[data-automation-id='workExperienceSection']",
-                           "[data-automation-id='file-upload-input-ref']",
-                           "[data-automation-id='select-files']",
-                           "[data-automation-id='dateSectionYear-input']",
-                           "[data-automation-id='add-button']",
-                           "#jobTitle")),
-        # No bare "fieldset legend": every step of a Workday form can contain a
-        # fieldset, so that matched My Information and made the wizard click
-        # Next six times into a validation wall.
         (
-            "questions",
+            "my-experience",
             (
-                "[data-automation-id='applicationQuestions']",
-                "[data-automation-id='applyFlowPrimaryQuestionsPage']",
-                "[data-automation-id='questionnaire']",
+                "[data-automation-id='workExperienceSection']",
+                "[data-automation-id='file-upload-input-ref']",
+                "[data-automation-id='select-files']",
+                "[data-automation-id='dateSectionYear-input']",
+                "#jobTitle",
             ),
         ),
-        ("disclosures", ("[data-automation-id='voluntaryDisclosures']", "[data-automation-id='selfIdentify']")),
-        ("review", ("[data-automation-id='reviewPage']", "[data-automation-id='submitButton']")),
+        (
+            "review",
+            (
+                "[data-automation-id='applyFlowReviewPage']",
+                "[data-automation-id='reviewPage']",
+                "[data-automation-id='submitButton']",
+            ),
+        ),
     )
 
     # Real Workday ids, both generations, with the fixture ids alongside them.
@@ -555,11 +610,19 @@ class Workday:
                 # than in the control's aria-label.
                 self._extras(page, ctx, report)
                 if ctx:
-                    fill_questions(page, ctx, "form input, form select, form textarea, fieldset legend", report)
+                    # Only free-text here: the dropdowns and radios are the
+                    # widget filler's job, and running the generic engine over
+                    # them produced eleven "could not fill" lines for fields it
+                    # had just filled.
+                    fill_questions(page, ctx, "form textarea", report)
             elif step == "disclosures":
                 report.questions_review.append(
                     ("Voluntary disclosures", "protected: never auto-answered")
                 )
+                # Stop here rather than clicking Next into a wall of required
+                # protected fields. This step is the human's, by design.
+                report.dedupe()
+                return report
             else:
                 # Review, or a page this filler does not know: stop rather than
                 # click through something it cannot read.
@@ -590,6 +653,7 @@ class Workday:
             else:
                 stalls = 0
 
+        report.dedupe()
         return report
 
     @staticmethod
@@ -1904,6 +1968,7 @@ def run(
             report.ats = kind
             report.url = page.url
             report.required_left = required_still_empty(page)
+            report.dedupe()
             if trace is not None:
                 trace.note(
                     "filled",

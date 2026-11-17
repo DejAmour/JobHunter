@@ -198,6 +198,32 @@ def _rule_salary(label: str, ctx: Context) -> Answer:
     return Answer(value, "review", "answer bank: salary_expectation; check it suits this role")
 
 
+# Questions whose own wording trips the protected list, answered before it runs.
+# The Disability Confident scheme names disability in the question itself; the
+# decision being asked for is whether to join it, and the candidate has stated
+# that explicitly. Nothing here is inferred from a disclosure.
+EARLY_RULES: tuple[tuple[re.Pattern[str], object], ...] = (
+    (
+        re.compile(
+            r"disability confident|guaranteed (?:participation|interview)|"
+            r"opt in.{0,80}scheme|would you like to .?opt in",
+            re.I,
+        ),
+        lambda label, ctx: _from_bank(ctx, "disability_confident_opt_in", "no answer for the scheme"),
+    ),
+    (
+        # The dependent question's option text reads "Yes, please select your
+        # current right to work / visa status" — which contains the phrase but is
+        # really a yes/no. Those fall through to the authorised-to-work rule.
+        re.compile(r"current right to work|right to work\s*/\s*visa|visa status", re.I),
+        lambda label, ctx: (
+            _from_bank(ctx, "right_to_work_status", "no answer for visa status")
+            if not label.strip().lower().startswith("yes")
+            else None
+        ),
+    ),
+)
+
 RULES: tuple[tuple[re.Pattern[str], object], ...] = (
     # --- the questions that decide an application ------------------------
     # Ordered before the generic sponsorship rule, because M&G's visa question
@@ -357,6 +383,11 @@ def answer_for(label: str, ctx: Context) -> Answer | None:
     text = " ".join((label or "").split())
     if not text:
         return None
+    for pattern, rule in EARLY_RULES:
+        if pattern.search(text):
+            answer = rule(text, ctx)
+            if answer is not None:
+                return answer
     if PROTECTED.search(text):
         for pattern, key in DISCLOSURE_KEYS:
             if pattern.search(text):

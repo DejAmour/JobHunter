@@ -44,6 +44,20 @@ PREFERENCES: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
             "employer website",
             "direct",
             "internet",
+            "linkedin",
+        ),
+    ),
+    (
+        # A status list, not a yes/no. "UK citizen" is the fact; the option that
+        # says so is worded differently at every employer.
+        re.compile(r"right to work|visa status|work authori[sz]ation|immigration status", re.I),
+        (
+            "uk citizen",
+            "british citizen",
+            "uk national",
+            "right to work",
+            "no restrictions",
+            "indefinite leave",
         ),
     ),
 )
