@@ -925,22 +925,72 @@ def _click(page, element, *, timeout_ms: int = 4000) -> bool:
 
 
 def _type(element, value: str) -> None:
-    """Put text in a field the way a person does.
+    """Put text in a field the way a person does, and check that it stuck.
 
-    Workday's React inputs ignore a bare value assignment often enough that the
-    autofill community has standardised on real key events; ``fill`` dispatches
-    the input event React listens for, and the keystrokes cover the components
-    that only listen to those.
+    Workday's inputs are React controlled components: a bare value assignment is
+    often ignored, and so is the input event that ``fill`` dispatches. The field
+    can look filled on screen while the component's state is still empty, and
+    the form then refuses to submit with no error at all — which is exactly how
+    one live run died, password field still focused and nothing said.
+
+    So: click, fill, dispatch change, then read the value back. If it did not
+    stick, clear the field and send real keystrokes, which no controlled
+    component can ignore.
     """
     if (element.get_attribute("data-automation-id") or "") in Workday.HONEYPOT_IDS:
         raise ValueError("refusing to type into Workday's bot-catcher field")
+    if value == "":
+        try:
+            element.fill("")
+        except Exception:  # noqa: BLE001
+            pass
+        return
+
+    for _ in range(2):
+        try:
+            element.click(timeout=3000)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            element.fill(value)
+            element.dispatch_event("change")
+        except Exception:  # noqa: BLE001
+            pass
+        current = _value_of(element)
+        if current is None or current == value:
+            return
+
+        # The field kept an older value: send keystrokes instead.
+        try:
+            element.click(timeout=3000)
+            element.press("Control+a")
+            element.press("Delete")
+            element.type(value, delay=15)
+        except Exception:  # noqa: BLE001
+            pass
+        current = _value_of(element)
+        if current is None or current == value:
+            return
+
+        try:
+            element.fill(value)
+        except Exception:  # noqa: BLE001
+            pass
+        current = _value_of(element)
+        if current is None or current == value:
+            return
+
+
+def _value_of(element) -> str | None:
+    """What a field actually holds, or None if that cannot be read.
+
+    None means "no way to verify", which callers treat as success: looping
+    forever on a field that cannot be inspected would be worse than trusting it.
+    """
     try:
-        element.click()
-        element.fill("")
-        element.fill(value)
-        element.dispatch_event("change")
+        return element.input_value()
     except Exception:  # noqa: BLE001
-        element.fill(value)
+        return None
 
 
 FILLERS = {

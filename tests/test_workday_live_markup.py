@@ -217,6 +217,32 @@ def test_a_swallowed_submit_click_falls_back_to_enter(site, page):
     assert page.url.endswith("myinfo.html")
 
 
+CONTROLLED = """
+<!doctype html><html><body>
+  <!-- A React-ish controlled input: it discards anything that did not arrive as
+       a keystroke, which is how a form ends up looking filled and submitting
+       nothing. -->
+  <input id="stubborn" data-automation-id="email">
+  <script>
+    const el = document.getElementById("stubborn");
+    let touched = false;
+    el.addEventListener("keydown", () => { touched = true; });
+    const discard = () => { if (!touched && el.value !== "") el.value = ""; };
+    el.addEventListener("input", discard);
+    el.addEventListener("change", discard);
+  </script>
+</body></html>
+"""
+
+
+def test_typing_is_verified_and_falls_back_to_keystrokes(site, page):
+    (site / "controlled.html").write_text(CONTROLLED, encoding="utf-8")
+    page.goto((site / "controlled.html").as_uri(), wait_until="domcontentloaded")
+    field = page.query_selector("#stubborn")
+    fill._type(field, "jeddahlke@gmail.com")
+    assert field.input_value() == "jeddahlke@gmail.com"
+
+
 def test_the_wizard_runs_the_whole_way_to_my_information(site, page):
     page.goto((site / "apply.html").as_uri(), wait_until="domcontentloaded")
     report = fill.Workday().fill(
