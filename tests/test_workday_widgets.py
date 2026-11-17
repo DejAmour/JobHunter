@@ -132,6 +132,30 @@ def ctx(**answers) -> questions.Context:
     return questions.Context(answers=dict(answers))
 
 
+def test_a_tiny_field_is_not_a_bot_trap(widgets):
+    """The year spinner on My Experience is a 1px input; it is not the trap."""
+    widgets.evaluate(
+        """
+        () => {
+          const trap = document.createElement("input");
+          trap.setAttribute("data-automation-id", "beecatcher");
+          trap.style.width = "1px";
+          trap.style.height = "1px";
+          document.body.appendChild(trap);
+
+          const year = document.createElement("input");
+          year.id = "year-probe";
+          year.setAttribute("aria-label", "Year");
+          year.style.width = "1px";
+          year.style.height = "1px";
+          document.body.appendChild(year);
+        }
+        """
+    )
+    assert fill.Workday._is_honeypot(widgets.query_selector("[data-automation-id='beecatcher']")) is True
+    assert fill.Workday._is_honeypot(widgets.query_selector("#year-probe")) is False
+
+
 def test_a_workday_dropdown_is_opened_and_an_option_chosen(widgets):
     report = fill.FillReport(url="", ats="workday")
     fill.Workday()._extras(

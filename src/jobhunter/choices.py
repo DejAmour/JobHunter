@@ -83,6 +83,17 @@ def _norm(text: str) -> str:
     return " ".join((text or "").split()).lower()
 
 
+# Answer wording that a form spells differently. Only expands the *answer*, never
+# overrides it, so a bank saying "MSc" can match "Master of Science (MSc)".
+SYNONYMS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
+    (re.compile(r"\bmsc\b|\bmaster'?s?\b", re.I), ("msc", "master of science", "masters", "master")),
+    (re.compile(r"\bbsc\b|\bbachelor'?s?\b", re.I), ("bsc", "bachelor of science", "bachelors", "bachelor")),
+    (re.compile(r"\bba\b", re.I), ("ba", "bachelor of arts", "bachelors of arts")),
+    (re.compile(r"\bmba\b", re.I), ("mba", "master of business administration")),
+    (re.compile(r"\bphd\b|\bdphil\b", re.I), ("phd", "doctor of philosophy", "dphil")),
+)
+
+
 def _recorded(data: dict, tenant: str, question: str, options: list[str]) -> str | None:
     saved = (data.get(tenant) or {}).get(question)
     if not saved:
@@ -115,6 +126,14 @@ def choose(
         for option in offered:
             if _norm(option).startswith(wanted):
                 return option, "prefix"
+
+    for pattern, variants in SYNONYMS:
+        if not pattern.search(answer or ""):
+            continue
+        for variant in variants:
+            for option in offered:
+                if variant in _norm(option):
+                    return option, f"synonym of the answer ({variant})"
 
     if tenant:
         remembered = _recorded(data if data is not None else load(), tenant, question, offered)

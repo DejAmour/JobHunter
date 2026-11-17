@@ -375,6 +375,8 @@ class Workday:
         ("my-experience", ("[data-automation-id='workExperienceSection']",
                            "[data-automation-id='file-upload-input-ref']",
                            "[data-automation-id='select-files']",
+                           "[data-automation-id='dateSectionYear-input']",
+                           "[data-automation-id='add-button']",
                            "#jobTitle")),
         # No bare "fieldset legend": every step of a Workday form can contain a
         # fieldset, so that matched My Information and made the wizard click
@@ -428,6 +430,18 @@ class Workday:
     RESUME = "input[data-automation-id='file-upload-input-ref'], input#resume, input[name='resume']"
     NEXT = "[data-automation-id='pageFooterNextButton'], button[data-action='continue']"
 
+    # Education is a repeatable block, and Workday numbers it (education-4,
+    # education-7, ...), so every selector is matched by suffix. School, Field of
+    # Study, GPA and the two years are text inputs; only Degree is a dropdown.
+    EDUCATION_TEXT = (
+        ("education_school", "School or University", "input[id$='--schoolName']"),
+        ("education_field", "Field of Study", "input[id$='--fieldOfStudy']"),
+        ("education_result", "Overall Result (GPA)", "input[id$='--gradeAverage']"),
+        ("education_first_year", "First year attended", "input[id$='firstYearAttended-dateSectionYear-input']"),
+        ("education_last_year", "Last year attended", "input[id$='lastYearAttended-dateSectionYear-input']"),
+    )
+    EDUCATION_DEGREE = "button[id$='--degree']"
+
     def step(self, page) -> str:
         """Which step is showing. Visible only: Workday keeps hidden templates
         for other steps in the DOM, and a hidden one is not the page you are on."""
@@ -448,6 +462,22 @@ class Workday:
             return step
         page.wait_for_timeout(wait_ms)
         return self.step(page)
+
+    def _await_step(self, page, *, seconds: float = 12.0, interval_ms: int = 500) -> str:
+        """Wait for a step to render, because the swap is an XHR, not a page load.
+
+        Between My Experience and the application questions Workday renders a
+        shell of empty measuring inputs and fills it in afterwards. Checking once
+        reported "unknown" and ended the run while the page was still arriving.
+        """
+        deadline = time.monotonic() + seconds
+        while True:
+            step = self.step(page)
+            if step:
+                return step
+            if time.monotonic() >= deadline:
+                return ""
+            page.wait_for_timeout(interval_ms)
 
     def fill(
         self,
@@ -471,7 +501,7 @@ class Workday:
 
         stalls = 0
         for _ in range(max(1, steps)):
-            step = self._settle(page)
+            step = self._settle(page) or self._await_step(page, seconds=30.0)
             report.steps.append(step or "unknown")
 
             if step in ("sign-in", "create-account"):
@@ -517,6 +547,7 @@ class Workday:
                 self._extras(page, ctx, report)
             elif step == "my-experience":
                 self._resume(page, data, report)
+                self._education(page, ctx, report)
             elif step == "questions":
                 if ctx:
                     fill_questions(page, ctx, "form input, form select, form textarea, fieldset legend", report)
@@ -996,6 +1027,11 @@ class Workday:
                     report.skipped.append(f"country (no option matching {value!r})")
 
     def _resume(self, page, data, report):
+        # A run that resumed a draft found the CV already attached; uploading
+        # again leaves a second copy, and the previous runs had left five.
+        if page.query_selector("[data-automation-id='delete-file']") is not None:
+            report.filled.append("resume (already attached)")
+            return
         element = self._one(page, self.RESUME)
         if element is None:
             return
@@ -1016,6 +1052,83 @@ class Workday:
             return page.query_selector(selector)
         except Exception:  # noqa: BLE001
             return None
+
+    def _education(self, page, ctx, report) -> None:
+        """Fill the education block from the answer bank.
+
+        School and Field of Study look like plain inputs and behave like them,
+        but Workday sometimes attaches a suggestion list; typing the value and
+        taking a matching suggestion when one appears covers both. Degree is a
+        real dropdown, matched through the resolver with degree synonyms, so a
+        bank saying "MSc" can take "Master of Science (MSc)".
+        """
+        from . import choices, questions
+
+        if ctx is None:
+            return
+
+        tenant = ""
+        try:
+            from . import accounts as accounts_module
+
+            tenant = accounts_module.tenant_from_url(page.url)
+        except Exception:  # noqa: BLE001
+            tenant = ""
+
+        for key, question, selector in self.EDUCATION_TEXT:
+            value = str(ctx.get(key, "") or "")
+            element = self._editable(page, (selector,))
+            if element is None:
+                continue
+            if not value:
+                report.empty_answers.append(question)
+                continue
+            try:
+                self._type_or_select(page, element, value, question, tenant=tenant, report=report)
+                report.filled.append(question)
+            except Exception:  # noqa: BLE001
+                report.empty_answers.append(question)
+
+        value = str(ctx.get("education_degree", "") or "")
+        button = self._clickable(page, (self.EDUCATION_DEGREE,))
+        if button is None:
+            return
+        if not value:
+            report.empty_answers.append("Degree")
+            return
+        if self._dropdown(page, button, "Degree", value, tenant=tenant, report=report):
+            report.filled.append("Degree")
+        else:
+            report.empty_answers.append(f"Degree (no option for {value!r})")
+
+    def _type_or_select(self, page, element, value, question, *, tenant="", report=None) -> bool:
+        """Type a value, and take a suggestion if the field offers one."""
+        from . import choices
+
+        _click(page, element)
+        try:
+            element.fill("")
+        except Exception:  # noqa: BLE001
+            pass
+        _type(element, value)
+        page.wait_for_timeout(1500)
+
+        options = self._all_option_texts(page)
+        if not options:
+            return True
+        picked = choices.choose(question, options, value, tenant=tenant)
+        if picked is None:
+            return True
+        suggestion = self._option_by_text(page, picked[0])
+        if suggestion is None:
+            return True
+        _click(page, suggestion)
+        page.wait_for_timeout(500)
+        if picked[1] != "exact" and report is not None:
+            report.notes.append(
+                f"{question}: typed {value!r}, took {picked[0]!r} ({picked[1]})"
+            )
+        return True
 
     # --- getting through the account wall ---------------------------------
     #
@@ -1322,14 +1435,22 @@ class Workday:
 
     @staticmethod
     def _is_honeypot(element) -> bool:
+        """Is this Workday's bot trap, rather than a field a person can fill?
+
+        Identity only, never size. An earlier version also refused anything
+        smaller than 2px, which sounded prudent until it hit the year spinners on
+        My Experience: real fields there are 1px inputs sitting behind a styled
+        "YYYY" label, and refusing them left two required fields permanently
+        blank.
+        """
         try:
             if element.get_attribute("data-automation-id") in Workday.HONEYPOT_IDS:
                 return True
+            name = (element.get_attribute("name") or "").strip().lower()
+            if name == "website":
+                return True
             label = (element.get_attribute("aria-label") or "").lower()
             if "robots only" in label or "do not enter" in label:
-                return True
-            box = element.bounding_box()
-            if box is not None and (box["height"] < 2 or box["width"] < 2):
                 return True
         except Exception:  # noqa: BLE001
             return True

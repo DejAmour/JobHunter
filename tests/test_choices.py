@@ -90,3 +90,33 @@ def test_a_remembered_option_that_disappeared_is_ignored(tmp_path):
     )
     assert picked is not None
     assert picked[0] == "Internet"
+
+
+DEGREES = [
+    "secondary school",
+    "diploma",
+    "bachelors degree",
+    "masters",
+    "doctorate",
+    "vocational training",
+    "qualified by experience",
+]
+
+
+def test_a_degree_abbreviation_finds_the_spelled_out_option():
+    """"MSc" against a list that only says "masters"."""
+    picked = choices.choose("Degree", DEGREES, "MSc")
+    assert picked is not None
+    assert picked[0] == "masters"
+    assert "synonym" in picked[1]
+
+
+def test_a_bachelors_abbreviation_does_not_take_masters():
+    picked = choices.choose("Degree", DEGREES, "BSc")
+    assert picked is not None
+    assert picked[0] == "bachelors degree"
+
+
+def test_a_degree_with_no_match_returns_nothing():
+    picked = choices.choose("Degree", DEGREES, "HND")
+    assert picked is None
