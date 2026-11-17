@@ -385,6 +385,7 @@ class Workday:
             "questions",
             (
                 "[data-automation-id='applicationQuestions']",
+                "[data-automation-id='applyFlowPrimaryQuestionsPage']",
                 "[data-automation-id='questionnaire']",
             ),
         ),
@@ -549,6 +550,10 @@ class Workday:
                 self._resume(page, data, report)
                 self._education(page, ctx, report)
             elif step == "questions":
+                # The questions page uses the same dropdown and radio widgets as
+                # My Information; only the question text lives in a label rather
+                # than in the control's aria-label.
+                self._extras(page, ctx, report)
                 if ctx:
                     fill_questions(page, ctx, "form input, form select, form textarea, fieldset legend", report)
             elif step == "disclosures":
@@ -939,6 +944,39 @@ class Workday:
             pass
         return _click(page, radio)
 
+    @staticmethod
+    def _question_text(button) -> str:
+        """The words above a dropdown, which Workday keeps out of aria-label.
+
+        On Application Questions every aria-label is just "Select One Required";
+        the question is in a label or in the field container.
+        """
+        try:
+            text = button.evaluate(
+                """
+                (el) => {
+                  const clean = (s) => (s || "").replace(/\\s+/g, " ").trim();
+                  const ids = (el.getAttribute("aria-labelledby") || "")
+                    .split(/\\s+/).filter(Boolean);
+                  for (const id of ids) {
+                    const node = document.getElementById(id);
+                    if (node && clean(node.innerText)) return clean(node.innerText);
+                  }
+                  const field = el.closest("[data-automation-id^='formField-']");
+                  if (field) {
+                    const label = field.querySelector("label");
+                    if (label && clean(label.innerText)) return clean(label.innerText);
+                    const whole = clean(field.innerText);
+                    if (whole) return whole;
+                  }
+                  return "";
+                }
+                """
+            )
+        except Exception:  # noqa: BLE001
+            return ""
+        return str(text or "")
+
     def _extras(self, page, ctx, report) -> None:
         """Answer the dropdowns and radio groups on My Information."""
         from . import choices, questions
@@ -957,7 +995,9 @@ class Workday:
 
         for button in self._dropdown_buttons(page):
             try:
-                label = self._clean_label(button.get_attribute("aria-label") or "")
+                label = self._clean_label(self._question_text(button)) or self._clean_label(
+                    button.get_attribute("aria-label") or ""
+                )
                 answer = questions.answer_for(label, ctx)
                 if answer is None or not answer.value:
                     report.empty_answers.append(label or "a dropdown")

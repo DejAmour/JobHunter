@@ -199,6 +199,43 @@ def _rule_salary(label: str, ctx: Context) -> Answer:
 
 
 RULES: tuple[tuple[re.Pattern[str], object], ...] = (
+    # --- the questions that decide an application ------------------------
+    # Ordered before the generic sponsorship rule, because M&G's visa question
+    # reads "M&G does not offer Skilled Worker visa sponsorship ... Do you meet
+    # this requirement?" and the generic rule would answer "No" to a question
+    # whose answer is "Yes".
+    (
+        re.compile(r"skilled worker visa|meet this requirement|right to work.{0,40}sponsor", re.I),
+        lambda label, ctx: _from_bank(ctx, "sponsorship_requirement", "no answer for the visa requirement"),
+    ),
+    (
+        re.compile(r"september 2027|able to join us|join us during|commencing during", re.I),
+        lambda label, ctx: _from_bank(ctx, "can_start_2027", "no answer for the 2027 start date"),
+    ),
+    (
+        re.compile(r"commit to working in person|in person from the required location|relocation expenses", re.I),
+        lambda label, ctx: _from_bank(ctx, "in_person_commitment", "no answer for the in-person commitment"),
+    ),
+    (
+        re.compile(r"more than one application|one graduate or one internship", re.I),
+        lambda label, ctx: _from_bank(ctx, "multiple_applications_2027", "no answer for multiple applications"),
+    ),
+    (
+        re.compile(r"public official|corporate customer|vendor or supplier|conflicts? of interest", re.I),
+        lambda label, ctx: _from_bank(ctx, "conflicts_of_interest", "no answer for conflicts of interest"),
+    ),
+    (
+        re.compile(r"reasonable adjustment", re.I),
+        lambda label, ctx: _from_bank(ctx, "reasonable_adjustments", "no answer for adjustments"),
+    ),
+    (
+        re.compile(r"\bopt in\b|online assessment|assessment process", re.I),
+        lambda label, ctx: _from_bank(ctx, "assessment_opt_in", "no answer for the assessment opt-in"),
+    ),
+    (
+        re.compile(r"\bpwc\b|auditor", re.I),
+        lambda label, ctx: _from_bank(ctx, "worked_for_pwc", "no answer for the auditor question"),
+    ),
     (
         re.compile(r"(require|need).{0,30}sponsor|sponsorship", re.I),
         _rule_sponsorship,
@@ -236,6 +273,7 @@ RULES: tuple[tuple[re.Pattern[str], object], ...] = (
     (
         re.compile(
             r"previous\s*worker|former\s*worker|previously\s+worked|"
+            r"previously\s+(?:been\s+)?employed|employed by (?:us|this|the company)|"
             r"worked (?:for|at) (?:us|this|the company)|"
             r"current or former employee",
             re.I,
