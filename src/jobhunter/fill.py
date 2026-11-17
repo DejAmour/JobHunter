@@ -611,20 +611,14 @@ class Workday:
 
         apply_button = self._await(page, self.APPLY, timeout_ms)
         if apply_button is not None:
-            try:
-                apply_button.click()
-            except Exception:  # noqa: BLE001
-                page.evaluate("el => el.click()", apply_button)
+            _click(page, apply_button)
             page.wait_for_timeout(1500)
 
         # The shelf: prefer the manual route. Autofill parses the CV into work
         # history, and its guesses are harder to check than an empty form.
         manual = self._await(page, self.APPLY_MANUALLY, 20_000)
         if manual is not None:
-            try:
-                manual.click()
-            except Exception:  # noqa: BLE001
-                page.evaluate("el => el.click()", manual)
+            _click(page, manual)
             page.wait_for_timeout(2500)
 
         return self._settle(page, wait_ms=3000)
@@ -662,7 +656,7 @@ class Workday:
                 toggle = self._clickable(page, self.TO_CREATE)
                 if toggle is None:
                     return "failed: no Create Account form on this page"
-                toggle.click()
+                _click(page, toggle)
                 page.wait_for_timeout(wait_ms)
             fields = self.CREATE
             outcome = "created"
@@ -671,7 +665,7 @@ class Workday:
                 toggle = self._clickable(page, self.TO_SIGNIN)
                 if toggle is None:
                     return "failed: no Sign In form on this page"
-                toggle.click()
+                _click(page, toggle)
                 page.wait_for_timeout(wait_ms)
             fields = self.SIGNIN
             outcome = "signed-in"
@@ -691,14 +685,15 @@ class Workday:
             if terms is not None:
                 try:
                     if not terms.is_checked():
-                        terms.check()
+                        _click(page, terms)
                 except Exception:  # noqa: BLE001
                     pass
 
         submit = self._clickable(page, fields["submit"])
         if submit is None:
             return "failed: no submit button on the account form"
-        submit.click()
+        if not _click(page, submit):
+            return "failed: the submit button would not accept a click"
         page.wait_for_timeout(wait_ms + 2500)
 
         code_field = self._code_field(page)
@@ -717,7 +712,7 @@ class Workday:
             if submit is None:
                 submit = self._clickable(page, ("[data-automation-id='verifyButton']",))
             if submit is not None:
-                submit.click()
+                _click(page, submit)
                 page.wait_for_timeout(wait_ms + 2500)
 
         if self._settle(page) in ("create-account", "sign-in"):
@@ -751,7 +746,7 @@ class Workday:
             try:
                 button = page.query_selector(selector)
                 if button is not None and button.is_visible():
-                    button.click(timeout=4000)
+                    _click(page, button, timeout_ms=4000)
                     page.wait_for_timeout(500)
                     return
             except Exception:  # noqa: BLE001
@@ -843,6 +838,38 @@ class Workday:
             except Exception:  # noqa: BLE001
                 continue
         return ""
+
+
+def _click(page, element, *, timeout_ms: int = 4000) -> bool:
+    """Click something even when Workday is covering it with a click filter.
+
+    While the app validates a field or swaps a form it lays a transparent
+    role="button" overlay over the page called ``click_filter``. Playwright
+    refuses to click through another element, which is correct in general and
+    wrong here: the overlay is not something a person can act on. So try the
+    real click, give a transient overlay a moment to clear, try once more, and
+    finally dispatch a synthetic click — React listens at the document root, so
+    the handler still runs.
+    """
+    try:
+        element.click(timeout=timeout_ms)
+        return True
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        page.wait_for_selector("[data-automation-id='click_filter']", state="hidden", timeout=3000)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        element.click(timeout=timeout_ms)
+        return True
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        element.evaluate("el => el.click()")
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _type(element, value: str) -> None:

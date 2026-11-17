@@ -172,6 +172,18 @@ def login_workday(home: Path, config: dict, account, *, url: str = "", create: b
             print(f"  session saved: {target.name}")
             print("  the next `fill` at this employer skips the sign-in.")
             return 0
+        except Exception as error:  # noqa: BLE001
+            # A traceback is useless here: the useful part is the screenshot and
+            # the one line Playwright complained about.
+            first = (str(error).strip().splitlines() or [""])[0][:220]
+            print(f"\nstopped: {type(error).__name__}: {first}")
+            try:
+                shot = target.with_suffix(".png")
+                page.screenshot(path=str(shot), full_page=True)
+                print(f"  screenshot: {shot}")
+            except Exception:  # noqa: BLE001
+                pass
+            return 1
         finally:
             context.close()
             browser.close()

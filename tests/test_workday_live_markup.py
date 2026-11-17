@@ -168,6 +168,30 @@ def test_the_bot_trap_is_never_filled(site, page):
     assert not page.url.endswith("flagged.html")
 
 
+OVERLAY = """
+<!doctype html><html><body>
+  <input data-automation-id="email" type="text">
+  <input data-automation-id="password" type="password">
+  <button data-automation-id="signInSubmitButton" type="button">Sign In</button>
+  <div data-automation-id="click_filter" role="button" aria-label="Sign In"
+       style="position:fixed;inset:0;z-index:9999;background:transparent"></div>
+  <script>
+    document.querySelector("[data-automation-id=signInSubmitButton]")
+      .addEventListener("click", () => location.href = "myinfo.html");
+  </script>
+</body></html>
+"""
+
+
+def test_a_click_filter_over_the_button_does_not_stop_the_run(site, page):
+    """Live M&G failure: the submit click was intercepted by click_filter."""
+    (site / "overlay.html").write_text(OVERLAY, encoding="utf-8")
+    page.goto((site / "overlay.html").as_uri(), wait_until="domcontentloaded")
+    status = fill.Workday().sign_in(page, email="jeddahlke@gmail.com", password="hunter2")
+    assert status == "signed-in"
+    assert page.url.endswith("myinfo.html")
+
+
 def test_the_wizard_runs_the_whole_way_to_my_information(site, page):
     page.goto((site / "apply.html").as_uri(), wait_until="domcontentloaded")
     report = fill.Workday().fill(
