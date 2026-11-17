@@ -98,6 +98,25 @@ MY_INFO = """
 
 FLAGGED = "<!doctype html><html><body><h1>Application flagged</h1></body></html>"
 
+# The form the M&G tenant actually renders: ids joined with "--", a fieldset on
+# the same page, and no data-automation-id on the inputs at all.
+MY_INFO_NEW = """
+<!doctype html><html><body>
+  <fieldset>
+    <legend>Are you a current or former worker?</legend>
+    <input type="radio" name="candidateIsPreviousWorker" value="true">
+    <input type="radio" name="candidateIsPreviousWorker" value="false">
+  </fieldset>
+  <input id="name--legalName--firstName" name="legalName--firstName" aria-required="true">
+  <input id="name--legalName--lastName" name="legalName--lastName" aria-required="true">
+  <input id="phoneNumber--phoneNumber" name="phoneNumber" aria-required="true" aria-invalid="true">
+  <input id="address--addressLine1" name="addressLine1">
+  <input id="address--city" name="city">
+  <input id="address--postalCode" name="postalCode">
+  <button data-automation-id="pageFooterNextButton" type="button">Next</button>
+</body></html>
+"""
+
 
 @pytest.fixture()
 def site(tmp_path):
@@ -280,3 +299,47 @@ def test_the_wizard_runs_the_whole_way_to_my_information(site, page):
     assert report.steps[0] == "create-account"
     assert "my-information" in report.steps
     assert {"first_name", "last_name"} <= set(report.filled)
+
+
+def test_a_fieldset_elsewhere_does_not_make_my_information_look_like_questions(site, page):
+    """Live M&G failure: the generic "fieldset legend" marker matched step 1."""
+    (site / "myinfo-new.html").write_text(MY_INFO_NEW, encoding="utf-8")
+    page.goto((site / "myinfo-new.html").as_uri(), wait_until="domcontentloaded")
+    assert fill.Workday().step(page) == "my-information"
+
+
+def test_the_newer_workday_ids_are_filled(site, page):
+    (site / "myinfo-new.html").write_text(MY_INFO_NEW, encoding="utf-8")
+    page.goto((site / "myinfo-new.html").as_uri(), wait_until="domcontentloaded")
+    report = fill.Workday().fill(
+        page,
+        fill.Values(
+            first_name="Jed",
+            last_name="Dahlke",
+            phone="07393434084",
+            address="27 Shareford Way",
+            city="Exeter",
+            postcode="EX5 7EZ",
+        ),
+        None,
+        advance=False,
+    )
+    assert {"first_name", "last_name", "phone", "address", "city", "postcode"} <= set(
+        report.filled
+    )
+    assert page.input_value("#name--legalName--firstName") == "Jed"
+
+
+def test_it_stops_and_names_the_invalid_field_instead_of_clicking_next_forever(site, page):
+    """Live M&G failure: six Next clicks into the same validation wall, no error."""
+    (site / "myinfo-new.html").write_text(MY_INFO_NEW, encoding="utf-8")
+    page.goto((site / "myinfo-new.html").as_uri(), wait_until="domcontentloaded")
+    report = fill.Workday().fill(
+        page,
+        fill.Values(first_name="Jed", last_name="Dahlke"),  # no phone
+        None,
+        advance=True,
+    )
+    assert "will not advance" in report.error
+    assert "phoneNumber" in report.error
+    assert len(report.steps) <= 3

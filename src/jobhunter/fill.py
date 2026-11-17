@@ -355,25 +355,68 @@ class Workday:
                 "#signInPage",
             ),
         ),
-        ("my-information", ("[data-automation-id='legalNameSection_firstName']", "#firstName")),
+        # Both Workday generations, live: the older "Section_field" automation
+        # ids and the current "name--legalName--firstName" ids. Recorded from
+        # the M&G tenant, where the newer form is the one that renders.
+        (
+            "my-information",
+            (
+                "[data-automation-id='legalNameSection_firstName']",
+                "#name--legalName--firstName",
+                "input[name='legalName--firstName']",
+                "#firstName",
+            ),
+        ),
         ("my-experience", ("[data-automation-id='workExperienceSection']", "#jobTitle")),
-        ("questions", ("[data-automation-id='applicationQuestions']", "fieldset legend")),
+        # No bare "fieldset legend": every step of a Workday form can contain a
+        # fieldset, so that matched My Information and made the wizard click
+        # Next six times into a validation wall.
+        (
+            "questions",
+            (
+                "[data-automation-id='applicationQuestions']",
+                "[data-automation-id='questionnaire']",
+            ),
+        ),
         ("disclosures", ("[data-automation-id='voluntaryDisclosures']", "[data-automation-id='selfIdentify']")),
         ("review", ("[data-automation-id='reviewPage']", "[data-automation-id='submitButton']")),
     )
 
-    # Real Workday automation ids, with the fixture ids alongside them.
+    # Real Workday ids, both generations, with the fixture ids alongside them.
     FIELDS = {
-        "first_name": "[data-automation-id='legalNameSection_firstName'], #firstName",
-        "last_name": "[data-automation-id='legalNameSection_lastName'], #lastName",
+        "first_name": (
+            "[data-automation-id='legalNameSection_firstName'], "
+            "#name--legalName--firstName, "
+            "input[name='legalName--firstName'], #firstName"
+        ),
+        "last_name": (
+            "[data-automation-id='legalNameSection_lastName'], "
+            "#name--legalName--lastName, "
+            "input[name='legalName--lastName'], #lastName"
+        ),
         "email": "input[data-automation-id='email'], #email",
-        "phone": "input[data-automation-id='phone-number'], #phone",
-        "address": "[data-automation-id='addressSection_addressLine1'], #address",
-        "city": "[data-automation-id='addressSection_city'], #city",
-        "postcode": "[data-automation-id='addressSection_postalCode'], #postalCode",
+        "phone": (
+            "input[data-automation-id='phone-number'], "
+            "#phoneNumber--phoneNumber, input[name='phoneNumber'], #phone"
+        ),
+        "address": (
+            "[data-automation-id='addressSection_addressLine1'], "
+            "#address--addressLine1, input[name='addressLine1'], #address"
+        ),
+        "city": (
+            "[data-automation-id='addressSection_city'], "
+            "#address--city, input[name='city'], #city"
+        ),
+        "postcode": (
+            "[data-automation-id='addressSection_postalCode'], "
+            "#address--postalCode, input[name='postalCode'], #postalCode"
+        ),
         "linkedin": "[data-automation-id='linkedin'], #linkedin",
     }
-    COUNTRY = "[data-automation-id='addressSection_countryRegion'], #country"
+    COUNTRY = (
+        "[data-automation-id='addressSection_countryRegion'], "
+        "#address--countryRegion, #country"
+    )
     RESUME = "input[data-automation-id='file-upload-input-ref'], input#resume, input[name='resume']"
     NEXT = "[data-automation-id='pageFooterNextButton'], button[data-action='continue']"
 
@@ -418,6 +461,7 @@ class Workday:
         # A page that is already a form returns immediately.
         self.prepare(page)
 
+        stalls = 0
         for _ in range(max(1, steps)):
             step = self._settle(page)
             report.steps.append(step or "unknown")
@@ -482,21 +526,60 @@ class Workday:
             button = page.query_selector(self.NEXT)
             if button is None:
                 return report
-            button.click()
+            _click(page, button)
             page.wait_for_timeout(2500)
+
+            # Six Next clicks into the same validation wall is worse than one:
+            # it looks like a broken tool and it teaches us nothing. If the step
+            # did not change after a second press, stop and say which fields the
+            # page is complaining about.
+            if self._settle(page) == step:
+                stalls += 1
+                if stalls >= 2:
+                    invalid = self._invalid_fields(page)
+                    report.error = (
+                        f"the form will not advance from {step}: "
+                        + (", ".join(invalid) if invalid else "the page gives no reason")
+                    )
+                    return report
+            else:
+                stalls = 0
 
         return report
 
+    @staticmethod
+    def _invalid_fields(page) -> list[str]:
+        """Labels of the fields Workday has marked invalid, if any."""
+        try:
+            labels = page.evaluate(
+                """
+                () => {
+                  const out = [];
+                  for (const el of document.querySelectorAll("[aria-invalid='true']")) {
+                    const label = (el.labels && el.labels.length ? el.labels[0].innerText : "")
+                      || el.getAttribute("name") || el.id || el.tagName;
+                    out.push(label.replace(/\\s*\\*\\s*$/, "").trim());
+                  }
+                  return out.slice(0, 8);
+                }
+                """
+            )
+            return [str(label) for label in labels]
+        except Exception:  # noqa: BLE001
+            return []
+
     def _fields(self, page, data, report):
         for key, selector in self.FIELDS.items():
-            element = self._one(page, selector)
+            element = self._editable(page, (selector,))
             if element is None:
                 continue
             value = data.get(key, "")
             if not value:
                 report.empty_answers.append(key)
                 continue
-            element.fill(value)
+            # _type, not fill: these are React controlled inputs, and a fill that
+            # "looks" applied can leave the component's state empty.
+            _type(element, value)
             report.filled.append(key)
 
         country = self._one(page, self.COUNTRY)
