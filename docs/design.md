@@ -249,9 +249,15 @@ tried or considered and the reason it lost would otherwise be rediscovered.
   wizard overrides `fill` because it owns the loop. The next ATS is a subclass,
   not a fourth copy of the same six loops. A test asserts `run` contains no
   ATS-specific code.
-- **ADR 5 — Recorded fixtures beat hand-written ones.** Tests built from markup
+- **ADR 5 - Recorded fixtures beat hand-written ones.** Tests built from markup
   we wrote pass while the live page fails. Behaviour is recorded from the real
-  tenant once and replayed.
+  tenant once and replayed. `jobhunter record` is that mechanism: it saves the
+  page with scripts and remote assets removed, plus an inventory of every
+  control the page really served. Workable and Ashby were written this way; a
+  recording that renders no controls is kept as evidence under `_failed/` and
+  never replayed. SmartRecruiters is the case where this rule stops work rather
+  than unblocking it: its apply page is behind a DataDome challenge, so there is
+  no honest fixture until one is captured from a browser that solved it.
 - **ADR 6 — One credential store, with an exit to a real manager.** Passwords
   live in the OS store because that is the only backend an unattended run can
   read without an unlock prompt. Generated passwords are the default for new

@@ -117,6 +117,19 @@ def main(argv: list[str] | None = None) -> int:
     probe_parser.add_argument("--firms", default=None, help="firms.toml to append verified entries to")
     probe_parser.add_argument("--write", action="store_true", help="append verified entries to firms.toml")
 
+    record_parser = commands.add_parser(
+        "record", help="save a live application form as a replayable test fixture"
+    )
+    record_parser.add_argument("--url", default="", help="the posting or form URL")
+    record_parser.add_argument("--job", type=int, default=0, help="record the URL of a stored job")
+    record_parser.add_argument("--ats", default="", help="board type, if the URL does not say")
+    record_parser.add_argument("--out", default="", help="fixture folder (default: tests/fixtures/recorded)")
+    record_parser.add_argument("--click", default="", help="text on the control that reveals the form")
+    record_parser.add_argument(
+        "--wait", type=float, default=15, help="seconds to wait for a single-page form to render"
+    )
+    record_parser.add_argument("--headless", action="store_true", help="do not show the browser window")
+
     serve_parser = commands.add_parser("serve", help="run the local dashboard")
     serve_parser.add_argument("--port", type=int, default=8765)
     serve_parser.add_argument("--host", default="127.0.0.1")
@@ -193,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     fill_parser.add_argument("--submit", action="store_true", help="press submit (default: stop for review)")
     fill_parser.add_argument("--headless", action="store_true", help="do not show the browser window")
     fill_parser.add_argument("--url", default="", help="override the posting URL (useful for fixtures)")
-    fill_parser.add_argument("--ats", default="", help="force a board type (greenhouse, lever) instead of detecting it")
+    fill_parser.add_argument("--ats", default="", help="force a board type (greenhouse, lever, workable, ashby) instead of detecting it")
     fill_parser.add_argument("--advance", action="store_true", help="on Workday, walk to the next step after filling")
     fill_parser.add_argument("--firm", default="", help="which employer account to use, if the URL does not say")
     fill_parser.add_argument(
@@ -333,6 +346,53 @@ def main(argv: list[str] | None = None) -> int:
             )
             added = probe.append_to(firms_path, found)
             print(f"\nwrote {added} new entries to {firms_path}")
+        return 0
+
+    if args.command == "record":
+        from . import record
+
+        url = args.url
+        ats = args.ats
+        if args.job:
+            db.init(store)
+            with db.connect(store) as connection:
+                row = connection.execute(
+                    "SELECT url FROM jobs WHERE id = ?", (args.job,)
+                ).fetchone()
+            if row is None:
+                print(f"no job {args.job}")
+                return 2
+            url = url or (row["url"] or "")
+        if not url:
+            print("nothing to record: pass --url or --job")
+            return 2
+
+        ats = ats or record.detect_ats(url)
+        out = Path(args.out) if args.out else (
+            Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "recorded" / (ats or "unknown")
+        )
+        print(f"recording {url}")
+        meta = record.capture(
+            url,
+            ats=ats,
+            out_dir=out,
+            headless=args.headless,
+            click=args.click,
+            wait_for_controls=args.wait,
+        )
+        print(f"  ats:      {meta['ats'] or 'unknown'}")
+        print(f"  final:    {meta['final_url']}")
+        print(f"  fixture:  {meta['path']}")
+        print(f"  controls: {meta['control_count']}")
+        for note in meta["notes"]:
+            print(f"  note:     {note}")
+        for control in meta["controls"]:
+            print(f"    {record.inventory_line(control)}")
+        if meta["control_count"] == 0:
+            print("  buttons seen:")
+            for button in meta["buttons"][:20]:
+                print(f"    {button['tag']:<7} {button['text'][:40]:<42} {button['href'][:50]}")
+            return 1
         return 0
 
     if args.command == "refresh":

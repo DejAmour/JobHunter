@@ -42,3 +42,8 @@ facts.toml
 # Credential Manager and never touch the disk.
 accounts.toml
 
+
+# Failed recordings: a captcha or a wall, kept as evidence, never replayed.
+tests/fixtures/recorded/**/_failed/
+# Screenshots of recorded fixtures: useful once, not needed to replay them.
+tests/fixtures/recorded/**/*.png

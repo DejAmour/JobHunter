@@ -1,0 +1,196 @@
+{
+  "ats": "ashby",
+  "url": "https://jobs.ashbyhq.com/neudata/916b4157-e176-4e11-8504-042d4b8fc26d?utm_source=zbKYW2mK4n",
+  "final_url": "https://jobs.ashbyhq.com/neudata/916b4157-e176-4e11-8504-042d4b8fc26d/application?utm_source=zbKYW2mK4n",
+  "captured": "2026-11-24T12:07:13+00:00",
+  "slug": "ashby-jobs-neudata-916b4157-e176-4e11-8504-042d4b8fc26d-utm-source-zbkyw2mk4n",
+  "fixture": "ashby-jobs-neudata-916b4157-e176-4e11-8504-042d4b8fc26d-utm-source-zbkyw2mk4n.html",
+  "control_count": 9,
+  "controls": [
+    {
+      "tag": "input",
+      "type": "file",
+      "id": "",
+      "name": "",
+      "autocomplete": "",
+      "placeholder": "",
+      "label": "",
+      "required": false
+    },
+    {
+      "tag": "input",
+      "type": "text",
+      "id": "_systemfield_name",
+      "name": "_systemfield_name",
+      "autocomplete": "",
+      "placeholder": "Type here...",
+      "label": "Full Name",
+      "required": true
+    },
+    {
+      "tag": "input",
+      "type": "email",
+      "id": "_systemfield_email",
+      "name": "_systemfield_email",
+      "autocomplete": "",
+      "placeholder": "hello@example.com...",
+      "label": "Email",
+      "required": true
+    },
+    {
+      "tag": "input",
+      "type": "url",
+      "id": "b7609477-5b47-47cc-8e35-4302dc96107d",
+      "name": "b7609477-5b47-47cc-8e35-4302dc96107d",
+      "autocomplete": "",
+      "placeholder": "https://example.com...",
+      "label": "LinkedIn Profile",
+      "required": true
+    },
+    {
+      "tag": "input",
+      "type": "file",
+      "id": "_systemfield_resume",
+      "name": "",
+      "autocomplete": "",
+      "placeholder": "",
+      "label": "CV",
+      "required": true
+    },
+    {
+      "tag": "input",
+      "type": "file",
+      "id": "91a94896-6e12-4b08-881e-9e6df5bbe060",
+      "name": "",
+      "autocomplete": "",
+      "placeholder": "",
+      "label": "Please upload a tailored cover letter explaining your interest in the Research Analyst role at Neudata and why you feel ",
+      "required": true
+    },
+    {
+      "tag": "input",
+      "type": "text",
+      "id": "bc7c5eed-0080-45c9-8943-742c875e4327",
+      "name": "bc7c5eed-0080-45c9-8943-742c875e4327",
+      "autocomplete": "",
+      "placeholder": "Type here...",
+      "label": "What are your salary expectations?",
+      "required": true
+    },
+    {
+      "tag": "input",
+      "type": "text",
+      "id": "ebe62125-43b0-41aa-a95d-9155f0024b98",
+      "name": "ebe62125-43b0-41aa-a95d-9155f0024b98",
+      "autocomplete": "",
+      "placeholder": "Type here...",
+      "label": "When will you be available to start?",
+      "required": true
+    },
+    {
+      "tag": "textarea",
+      "type": "",
+      "id": "f8f5e5e2-89b3-4e26-b98c-f89b2c51b81b",
+      "name": "f8f5e5e2-89b3-4e26-b98c-f89b2c51b81b",
+      "autocomplete": "",
+      "placeholder": "Type here...",
+      "label": "If you require sponsorship now or in the future, please provide details below:",
+      "required": false
+    }
+  ],
+  "buttons": [
+    {
+      "tag": "a",
+      "text": "Overview",
+      "href": "/neudata/916b4157-e176-4e11-8504-042d4b8fc26d?utm_source=zbKYW2mK4n",
+      "id": "job-overview"
+    },
+    {
+      "tag": "a",
+      "text": "Application",
+      "href": "/neudata/916b4157-e176-4e11-8504-042d4b8fc26d/application?utm_source=zbKYW2mK4n",
+      "id": "job-application-form"
+    },
+    {
+      "tag": "button",
+      "text": "Upload file",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "button",
+      "text": "Upload File",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "button",
+      "text": "Upload File",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "button",
+      "text": "Yes",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "button",
+      "text": "No",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "button",
+      "text": "Yes",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "button",
+      "text": "No",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "a",
+      "text": "here.",
+      "href": "https://www.gov.uk/skilled-worker-visa",
+      "id": ""
+    },
+    {
+      "tag": "button",
+      "text": "Submit Application",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "a",
+      "text": "Powered by",
+      "href": "https://www.ashbyhq.com",
+      "id": ""
+    },
+    {
+      "tag": "a",
+      "text": "Privacy Policy",
+      "href": "https://www.ashbyhq.com/privacy",
+      "id": ""
+    },
+    {
+      "tag": "a",
+      "text": "Security",
+      "href": "https://www.ashbyhq.com/security",
+      "id": ""
+    },
+    {
+      "tag": "a",
+      "text": "Vulnerability Disclosure",
+      "href": "https://www.ashbyhq.com/disclosure",
+      "id": ""
+    }
+  ],
+  "notes": [
+    "clicked Apply for this Job"
+  ]
+}

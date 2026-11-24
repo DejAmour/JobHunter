@@ -72,22 +72,48 @@ def question_text(element) -> str:
     """The words a person would read as the question.
 
     For a radio group the question is the fieldset legend; the radio's own label
-    is the option ("Yes", "No"), which would be useless as a lookup key.
+    is the option ("Yes", "No"), which would be useless as a lookup key. Workable
+    uses no legend: its fieldset points at the question with ``aria-labelledby``,
+    which is the same statement in a different attribute.
     """
     return element.evaluate(
         """
         (el) => {
           const clean = (t) => (t || '').replace(/\\s+/g, ' ').trim();
+          const byIds = (ids) => clean(String(ids || '').split(/\\s+/).map((id) => {
+            const node = id ? document.getElementById(id) : null;
+            return node ? node.innerText : '';
+          }).join(' '));
           const type = (el.type || '').toLowerCase();
           const fieldset = el.closest('fieldset');
           if ((type === 'radio' || type === 'checkbox') && fieldset) {
             const legend = fieldset.querySelector('legend');
-            if (legend) return clean(legend.innerText);
+            if (legend && clean(legend.innerText)) return clean(legend.innerText);
+            const labelled = byIds(fieldset.getAttribute('aria-labelledby'));
+            if (labelled) return labelled;
+          }
+          // A radio's own label is its option ("Completed"), so the question
+          // comes from the field entry around the group when there is one.
+          if (type === 'radio' || type === 'checkbox') {
+            const entry = el.closest('[data-field-path]');
+            if (entry) {
+              const own = entry.querySelector('label');
+              if (own && clean(own.innerText)) return clean(own.innerText);
+            }
           }
           if (el.labels && el.labels.length) return clean(el.labels[0].innerText);
           if (fieldset) {
             const legend = fieldset.querySelector('legend');
             if (legend) return clean(legend.innerText);
+            const labelled = byIds(fieldset.getAttribute('aria-labelledby'));
+            if (labelled) return labelled;
+          }
+          // Ashby's date inputs carry no id, so the label's `for` points at
+          // nothing; the field entry around them still holds the question.
+          const entry = el.closest('[data-field-path]');
+          if (entry) {
+            const own = entry.querySelector('label');
+            if (own && clean(own.innerText)) return clean(own.innerText);
           }
           const aria = el.getAttribute('aria-label') || el.getAttribute('placeholder');
           if (aria) return clean(aria);
@@ -319,7 +345,17 @@ RULES: tuple[tuple[re.Pattern[str], object], ...] = (
         lambda label, ctx: _from_bank(ctx, "current_title", "no current title recorded"),
     ),
     (
-        re.compile(r"highest (?:level of )?education|highest qualification|degree", re.I),
+        re.compile(r"universit|which (?:school|college)|institution", re.I),
+        lambda label, ctx: _from_bank(ctx, "education_school"),
+    ),
+    (
+        re.compile(r"subject area|field of study|what (?:did|do) you study|discipline", re.I),
+        lambda label, ctx: _from_bank(ctx, "education_field"),
+    ),
+    (
+        # "Degree status" asks whether it is finished, not what it is, and the
+        # qualification string is not one of its options.
+        re.compile(r"highest (?:level of )?education|highest qualification|degree(?!\s*(?:status|class|grade))", re.I),
         lambda label, ctx: _from_bank(ctx, "highest_qualification"),
     ),
     (
@@ -328,7 +364,7 @@ RULES: tuple[tuple[re.Pattern[str], object], ...] = (
     ),
     (
         re.compile(r"years of experience|how many years", re.I),
-        lambda label, ctx: _years(ctx),
+        lambda label, ctx: _years(label, ctx),
     ),
 )
 
@@ -371,7 +407,11 @@ def _from_bank(ctx: Context, key: str, missing_reason: str = "") -> Answer:
     return Answer(value, "certain", f"answer bank: {key}")
 
 
-def _years(ctx: Context) -> Answer:
+def _years(label: str, ctx: Context) -> Answer:
+    # "Do you have 1-6 years of experience in private equity?" is a yes/no
+    # question, and "3" is not one of its answers.
+    if re.search(r"^\s*(?:do|does|did|have|has|are|is|can|will|would)\b", label, re.I):
+        return Answer("", "review", "yes/no question: your own answer, not a number")
     years = ctx.candidate.get("years_experience")
     if years is None:
         return Answer("", "review", "no years_experience in config")

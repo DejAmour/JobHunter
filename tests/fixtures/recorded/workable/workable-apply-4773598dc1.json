@@ -1,0 +1,216 @@
+{
+  "ats": "workable",
+  "url": "https://apply.workable.com/j/4773598DC1",
+  "final_url": "https://apply.workable.com/as-equity-partners/j/4773598DC1/apply/",
+  "captured": "2026-11-24T12:05:35+00:00",
+  "slug": "workable-apply-4773598dc1",
+  "fixture": "workable-apply-4773598dc1.html",
+  "control_count": 11,
+  "controls": [
+    {
+      "tag": "input",
+      "type": "text",
+      "id": "firstname",
+      "name": "firstname",
+      "autocomplete": "",
+      "placeholder": "",
+      "label": "*\nFirst name",
+      "required": true
+    },
+    {
+      "tag": "input",
+      "type": "text",
+      "id": "lastname",
+      "name": "lastname",
+      "autocomplete": "",
+      "placeholder": "",
+      "label": "*\nLast name",
+      "required": true
+    },
+    {
+      "tag": "input",
+      "type": "email",
+      "id": "email",
+      "name": "email",
+      "autocomplete": "",
+      "placeholder": "",
+      "label": "*\nEmail",
+      "required": true
+    },
+    {
+      "tag": "input",
+      "type": "tel",
+      "id": "input_phone",
+      "name": "phone",
+      "autocomplete": "tel",
+      "placeholder": "",
+      "label": "",
+      "required": true
+    },
+    {
+      "tag": "input",
+      "type": "text",
+      "id": "address",
+      "name": "address",
+      "autocomplete": "",
+      "placeholder": "",
+      "label": "Address (Optional)",
+      "required": false
+    },
+    {
+      "tag": "input",
+      "type": "text",
+      "id": "city",
+      "name": "city",
+      "autocomplete": "",
+      "placeholder": "",
+      "label": "",
+      "required": false
+    },
+    {
+      "tag": "input",
+      "type": "text",
+      "id": "postcode",
+      "name": "postcode",
+      "autocomplete": "",
+      "placeholder": "",
+      "label": "",
+      "required": false
+    },
+    {
+      "tag": "input",
+      "type": "text",
+      "id": "country",
+      "name": "country",
+      "autocomplete": "",
+      "placeholder": "",
+      "label": "",
+      "required": false
+    },
+    {
+      "tag": "input",
+      "type": "file",
+      "id": "input_files_input_svj4kgGHURl2R1gC",
+      "name": "",
+      "autocomplete": "",
+      "placeholder": "",
+      "label": "",
+      "required": true
+    },
+    {
+      "tag": "input",
+      "type": "radio",
+      "id": "JcWAYx1tmgq5gs6I",
+      "name": "QA_12394550",
+      "autocomplete": "",
+      "placeholder": "",
+      "label": "YES",
+      "required": true
+    },
+    {
+      "tag": "input",
+      "type": "radio",
+      "id": "vVRM9BewkHIgmvnb",
+      "name": "QA_12394550",
+      "autocomplete": "",
+      "placeholder": "",
+      "label": "NO",
+      "required": true
+    }
+  ],
+  "buttons": [
+    {
+      "tag": "a",
+      "text": "OVERVIEW",
+      "href": "/as-equity-partners/j/4773598DC1/",
+      "id": ""
+    },
+    {
+      "tag": "a",
+      "text": "APPLICATION",
+      "href": "/as-equity-partners/j/4773598DC1/apply/",
+      "id": ""
+    },
+    {
+      "tag": "button",
+      "text": "Import resume from",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "a",
+      "text": "Clear",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "button",
+      "text": "+44",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "a",
+      "text": "Clear",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "label",
+      "text": "Choose file",
+      "href": "",
+      "id": "description_input_svj4kgGHURl2R1gC"
+    },
+    {
+      "tag": "a",
+      "text": "Clear",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "button",
+      "text": "Submit application",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "a",
+      "text": "View website",
+      "href": "https://as-equitypartners.com/",
+      "id": ""
+    },
+    {
+      "tag": "a",
+      "text": "View all jobs",
+      "href": "/as-equity-partners/",
+      "id": ""
+    },
+    {
+      "tag": "a",
+      "text": "Help",
+      "href": "https://jobseekers.workable.com/hc/en",
+      "id": ""
+    },
+    {
+      "tag": "a",
+      "text": "Accessibility",
+      "href": "https://workable.com/web-accessibility-statement",
+      "id": ""
+    },
+    {
+      "tag": "button",
+      "text": "Cookie settings",
+      "href": "",
+      "id": ""
+    },
+    {
+      "tag": "a",
+      "text": "Workable",
+      "href": "https://jobs.workable.com/?utm_campaign=careers_page&utm_content=careers_page&utm_medium=feature&utm_source=careers_page",
+      "id": ""
+    }
+  ],
+  "notes": [
+    "clicked Apply for this job"
+  ]
+}

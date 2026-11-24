@@ -33,8 +33,12 @@ Working today:
 - **Dashboard** — a local web app tracking jobs, applications, assessments,
   interviews, outreach and CV versions.
 - **Form filling** — Playwright against the employer's own form: Greenhouse,
-  Lever, and Workday's wizard including its account wall. It fills from the
-  answer bank, uploads the CV and stops at Review. It does not submit.
+  Lever, Workable, Ashby, and Workday's wizard including its account wall. It
+  fills from the answer bank, uploads the CV and stops at Review. It does not
+  submit.
+- **Recorded fixtures** — `jobhunter record` opens a live form and saves its
+  markup, so a filler is written against the tenant's page rather than one we
+  wrote. The Workable and Ashby fillers were built this way.
 - **Traces** — every browser run writes `~/.jobhunter/traces/<run>/`: network
   log with secrets masked, console, DOM, screenshot, and a `summary.txt` naming
   every submission and its response.
@@ -42,8 +46,10 @@ Working today:
   CV generation from `cv/content.toml`, and outreach drafting with a dry-run
   sender.
 
-Not yet: Ashby, Workable and SmartRecruiters fillers; Oracle HCM discovery;
-an answer-bank UI (the fact sheet is edited with `jobhunter facts`).
+Not yet: SmartRecruiters form filling (its apply page is served behind a
+DataDome challenge, so the markup has to be recorded from a signed-in browser
+once); Oracle HCM discovery; an answer-bank UI (the fact sheet is edited with
+`jobhunter facts`).
 
 ## Accounts and passwords
 
@@ -193,9 +199,11 @@ python -m jobhunter fill --job 2            # fills, screenshots, stops
 python -m jobhunter fill --job 2 --submit   # presses submit
 ```
 
-Greenhouse and Lever are done. The filler opens the posting in a real browser,
-writes the values from `[answers]`, uploads the CV the pack chose, screenshots
-the result into the application folder, and stops at the review screen.
+Greenhouse, Lever, Workable and Ashby are done. The filler opens the posting in a
+real browser, writes the values from `[answers]`, uploads the CV the pack chose,
+screenshots the result into the application folder, and stops at the review
+screen. Workable and Ashby put the form behind an "Apply" control on the posting,
+so the filler follows that first.
 
 Rules it will not break:
 
@@ -203,15 +211,36 @@ Rules it will not break:
   to write.
 - **A field with no answer stays empty and is reported.** An empty required field
   fails at the employer's own validation, which is the right place to fail.
+- **A date is never guessed.** A date picker is reported for you to fill; a
+  sentence like "Available immediately" is not a date.
 - **Submit is off** unless you pass `--submit`.
 
-Proved against the vendored fixtures, which are real Greenhouse and Lever
-markup loaded from disk, so the tests exercise the selectors without touching an
-employer:
+Proved against recorded fixtures — real Greenhouse and Lever markup from the
+vendored JobAppAgent set, and Workable and Ashby pages captured from the live
+tenants by `jobhunter record` — so the tests exercise the selectors without
+touching an employer:
 
 ```
-python -m pytest tests/test_fill.py -q
+python -m pytest tests/test_fill.py tests/test_recorded_forms.py -q
 ```
+
+### Recording a form you have not written a filler for
+
+```
+jobhunter record --job 274 --headless
+jobhunter record --url "https://apply.workable.com/acme/j/ABC123" --headed
+```
+
+It opens the page, presses the obvious Apply control if the form is behind one,
+and writes the markup to `tests/fixtures/recorded/<ats>/` with a `.json` listing
+every control the page really had — tag, type, name, id, label, options. Scripts
+and remote assets are stripped so the fixture replays offline. A page with no
+form controls (a captcha, a closed posting) is kept under `_failed/` as evidence
+and is never replayed.
+
+The recorder is the answer to a specific failure mode: a fixture written by hand
+passes while the live page fails. Write the selectors from the inventory, not
+from memory.
 
 ### Workday
 

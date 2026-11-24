@@ -172,6 +172,17 @@ class FillReport:
             review.append((question, reason))
         self.questions_review = review
 
+        # Every radio in a required group is marked required, so the page names
+        # one unanswered question twice.
+        seen = set()
+        required: list[str] = []
+        for label in self.required_left:
+            if label in seen:
+                continue
+            seen.add(label)
+            required.append(label)
+        self.required_left = required
+
     def summary(self) -> str:
         lines = [f"{self.ats or 'unknown ats'}: {self.url}"]
         if self.error:
@@ -244,6 +255,9 @@ class Ats:
     #: does this ATS put an account wall in front of the form?
     needs_account = False
 
+    #: the control that sends the application, when the site has a normal one
+    SUBMIT = "button[type='submit'], #btn-submit, [data-testid='submit-application']"
+
     def fill(
         self,
         page,
@@ -254,8 +268,20 @@ class Ats:
         login: Login | None = None,
     ) -> "FillReport":
         report = FillReport(url=page.url, ats=self.name)
+        note = self.prepare(page)
+        if note:
+            report.notes.append(note)
+            report.url = page.url
         self.fill_form(page, values, ctx, report)
         return report
+
+    def prepare(self, page) -> str:
+        """Reveal the form if the page is a posting with an Apply control.
+
+        Returns a note for the report, or ``"".`` A single-page ATS usually needs
+        nothing here; the ones that put the form behind a link implement it.
+        """
+        return ""
 
     def fill_form(self, page, values: "Values", ctx, report: "FillReport") -> None:
         """Fill whatever a single page shows. Subclasses must implement this."""
@@ -263,9 +289,7 @@ class Ats:
 
     def submit(self, page) -> str:
         """Press the final submit control. Empty on success, a reason on failure."""
-        button = page.query_selector(
-            "button[type='submit'], #btn-submit, [data-testid='submit-application']"
-        )
+        button = page.query_selector(self.SUBMIT)
         if button is None:
             return "no submit control found"
         before_url = page.url
@@ -411,6 +435,182 @@ class Lever(Ats):
                 ctx,
                 "input[name^='cards['], select[name^='cards['], textarea[name^='cards[']",
                 report,
+            )
+
+
+class Workable(Ats):
+    """Workable's apply page, recorded from ``apply.workable.com`` on 2026-11-24.
+
+    The form is one page under ``/apply/``; the posting page links to it and the
+    recorder follows that link. Two things are not what the markup suggests:
+
+    * ``#address`` is the only visible address control. ``city``, ``postcode``
+      and ``country`` are one-pixel inputs the page's type-ahead fills in, so
+      writing to them would set a value the page never reads.
+    * question groups are ``fieldset[role=radiogroup][data-ui^='QA_']`` with the
+      question in ``aria-labelledby`` and no legend, and the radio itself is
+      ``aria-hidden`` behind a clickable wrapper. Both are handled by the shared
+      question engine.
+    """
+
+    name = "workable"
+
+    TEXT = {
+        "first_name": "#firstname",
+        "last_name": "#lastname",
+        "email": "#email",
+        "phone": "input[name='phone'], #input_phone",
+    }
+    FILE = {"resume": "input[type='file'][data-ui='resume'], input[type='file']"}
+    SUBMIT = "button[data-ui='apply-button'], button[type='submit']"
+
+    def prepare(self, page) -> str:
+        """The posting page links to ``/apply/``; follow it when it is showing."""
+        if page.query_selector("input[name='firstname']") is not None:
+            return ""
+        link = page.query_selector("a[href*='/apply/']")
+        if link is None:
+            return ""
+        href = link.get_attribute("href") or ""
+        try:
+            link.click(timeout=5_000)
+        except Exception:  # noqa: BLE001 - an overlay may swallow the click
+            if not href:
+                return ""
+            page.goto(
+                page.evaluate("(href) => new URL(href, location.href).href", href),
+                wait_until="domcontentloaded",
+                timeout=45_000,
+            )
+        page.wait_for_timeout(1_500)
+        return "opened the application page"
+
+    def fill_form(self, page, values: Values, ctx, report: FillReport) -> None:
+        data = values.as_dict()
+        for key, selector in self.TEXT.items():
+            value = data.get(key, "")
+            element = page.query_selector(selector)
+            if element is None:
+                continue
+            if not value:
+                report.empty_answers.append(key)
+                continue
+            element.fill(value)
+            report.filled.append(key)
+
+        address = page.query_selector("#address")
+        if address is not None:
+            composed = values.location
+            if composed and values.country and values.country.lower() not in composed.lower():
+                composed = f"{composed}, {values.country}"
+            if not composed:
+                report.empty_answers.append("address")
+            else:
+                address.fill(composed)
+                page.wait_for_timeout(600)  # the type-ahead may offer a match
+                report.filled.append("address")
+
+        for key, selector in self.FILE.items():
+            path = data.get(key, "")
+            element = page.query_selector(selector)
+            if element is None:
+                continue
+            if not path or not Path(path).is_file():
+                report.empty_answers.append(key)
+                continue
+            element.set_input_files(path)
+            time.sleep(1.5)
+            report.filled.append(key)
+
+        if ctx is not None:
+            fill_questions(
+                page,
+                ctx,
+                "input[name^='QA_'], select[name^='QA_'], textarea[name^='QA_']",
+                report,
+            )
+
+
+class Ashby(Ats):
+    """Ashby's application page, recorded from ``jobs.ashbyhq.com`` on 2026-11-24.
+
+    Every field is addressed by ``data-field-path``. The system fields are named
+    (``_systemfield_name``, ``_systemfield_email``, ``_systemfield_resume``); the
+    employer's own questions are UUIDs, so they are answered by their label and
+    not by a selector that would differ at the next employer.
+
+    The first file input on the page is Ashby's *autofill* upload: sending the CV
+    there makes Ashby parse it and rewrite the fields that were just filled. The
+    CV goes to ``_systemfield_resume`` only.
+    """
+
+    name = "ashby"
+
+    SYSTEM = {
+        "_systemfield_name": "name",
+        "_systemfield_email": "email",
+        "_systemfield_phone": "phone",
+        "_systemfield_linkedin": "linkedin",
+    }
+    SUBMIT = ".ashby-application-form-submit-button, button[type='submit']"
+
+    def prepare(self, page) -> str:
+        """A posting shows the form only after "Apply for this Job"."""
+        if page.query_selector("[data-field-path]") is not None:
+            return ""
+        for selector in (
+            "button:has-text('Apply for this Job')",
+            "a:has-text('Apply for this Job')",
+            "button:has-text('Apply')",
+            "a:has-text('Apply')",
+        ):
+            control = page.query_selector(selector)
+            if control is None:
+                continue
+            try:
+                control.click(timeout=5_000)
+            except Exception:  # noqa: BLE001
+                continue
+            page.wait_for_timeout(2_000)
+            return "opened the application form"
+        return ""
+
+    def fill_form(self, page, values: Values, ctx, report: FillReport) -> None:
+        data = values.as_dict()
+        for entry in page.query_selector_all("[data-field-path]"):
+            path = entry.get_attribute("data-field-path") or ""
+            control = entry.query_selector("input, select, textarea")
+            if control is None:
+                continue
+
+            if path == "_systemfield_resume":
+                if not values.cv_path or not Path(values.cv_path).is_file():
+                    report.empty_answers.append("resume")
+                    continue
+                control.set_input_files(values.cv_path)
+                time.sleep(1.5)
+                report.filled.append("resume")
+                continue
+
+            key = self.SYSTEM.get(path)
+            if key is None:
+                continue  # an employer question; the shared engine answers those
+            value = data.get(key, "")
+            if not value:
+                report.empty_answers.append(key)
+                continue
+            control.fill(value)
+            report.filled.append(key)
+
+        if ctx is not None:
+            fill_questions(
+                page,
+                ctx,
+                "[data-field-path]:not([data-field-path^='_systemfield_']) input,"
+                " [data-field-path]:not([data-field-path^='_systemfield_']) select,"
+                " [data-field-path]:not([data-field-path^='_systemfield_']) textarea",
+                report,
+                report_unmatched=True,
             )
 
 
@@ -1783,17 +1983,24 @@ def _value_of(element) -> str | None:
 FILLERS = {
     "greenhouse": Greenhouse,
     "lever": Lever,
+    "workable": Workable,
+    "ashby": Ashby,
     "workday": Workday,
     "questions": GenericQuestions,
 }
 
 
-def fill_questions(page, ctx, selector: str, report: FillReport) -> None:
+def fill_questions(page, ctx, selector: str, report: FillReport, *, report_unmatched: bool = False) -> None:
     """Answer whichever custom questions the page shows, from the answer bank.
 
     Works on any markup: it reads the question from the label or the fieldset
     legend, so the same code answers a Greenhouse ``#question_*`` field, a Lever
     ``cards[...]`` field and a Workday fieldset.
+
+    ``report_unmatched`` lists questions no rule claims. Some pages mark their
+    required fields in the markup and can be left to report themselves; others
+    (Ashby) mark them only with a class, so the only way the human learns what is
+    still blank is to be told.
     """
     from . import questions
 
@@ -1817,10 +2024,20 @@ def fill_questions(page, ctx, selector: str, report: FillReport) -> None:
             seen.add(name)
 
         label = questions.question_text(element)
+        if _is_date_field(element):
+            # A date is not a sentence: "Available immediately" in a date box is
+            # a failed validation, and a guessed date is a claim about him.
+            report.questions_review.append(
+                (label or name, "date field: needs a real date, fill it yourself")
+            )
+            continue
         answer = questions.answer_for(label, ctx)
         if answer is None:
-            # Not a question this engine claims to answer. Silence is right here;
-            # required_still_empty() reports it if the employer insists.
+            # Not a question this engine claims to answer.
+            if report_unmatched:
+                report.questions_review.append(
+                    (label or name, "no answer rule for this question")
+                )
             continue
         if answer.confidence != "certain" or not answer.value:
             report.questions_review.append((label, answer.reason))
@@ -1829,6 +2046,8 @@ def fill_questions(page, ctx, selector: str, report: FillReport) -> None:
         try:
             if widget == "select":
                 _select_by_text(element, answer.value)
+            elif widget == "checkbox" and _is_single_yes_no(page, element):
+                _tick(page, element, answer.value == "Yes")
             elif widget in ("radio", "checkbox"):
                 if not _click_option(page, element, answer.value):
                     report.questions_review.append((label, f"no '{answer.value}' option on the page"))
@@ -1839,6 +2058,51 @@ def fill_questions(page, ctx, selector: str, report: FillReport) -> None:
         except Exception as error:  # noqa: BLE001
             reason = str(error) if isinstance(error, LookupError) else f"could not fill: {type(error).__name__}"
             report.questions_review.append((label, reason))
+
+
+def _is_single_yes_no(page, element) -> bool:
+    """One checkbox standing in for a Yes/No answer.
+
+    Ashby renders "Will you require sponsorship?" as a lone checkbox: ticked
+    means Yes. Clicking at an option named "No" is meaningless there, so the
+    answer becomes the box's checked state.
+    """
+    name = element.get_attribute("name") or element.get_attribute("id") or ""
+    if not name:
+        return False
+    try:
+        group = page.query_selector_all(f"input[name='{name}']")
+    except Exception:  # noqa: BLE001
+        return False
+    return len(group) == 1
+
+
+def _tick(page, element, checked: bool) -> None:
+    """Set a checkbox, clicking the visible label when the input itself is hidden."""
+    if element.is_checked() == checked:
+        return
+    try:
+        element.check(timeout=2_000) if checked else element.uncheck(timeout=2_000)
+        return
+    except Exception:  # noqa: BLE001
+        pass
+    _press_option(element)
+
+
+def _is_date_field(element) -> bool:
+    """A date picker, however the site dresses it up as a text box."""
+    try:
+        kind = (element.get_attribute("type") or "").lower()
+        classes = (element.get_attribute("class") or "").lower()
+        placeholder = (element.get_attribute("placeholder") or "").lower()
+    except Exception:  # noqa: BLE001
+        return False
+    return (
+        kind == "date"
+        or "datepicker" in classes
+        or "input-date" in classes
+        or placeholder.startswith("pick date")
+    )
 
 
 def _select_by_text(element, value: str) -> None:
@@ -1879,9 +2143,43 @@ def _click_option(page, element, value: str) -> bool:
             """
         )
         if label.lower().strip(" .*") == value.lower().strip(" .*"):
-            candidate.check()
-            return True
+            if _press_option(candidate):
+                return True
     return False
+
+
+def _press_option(candidate) -> bool:
+    """Set a radio or checkbox the way the page expects it to be set.
+
+    ``check()`` is right for an ordinary input. Workable hides the input and
+    gives the visible role to a wrapper div, so the click has to land on that
+    wrapper or nothing reaches the page's own handler.
+    """
+    try:
+        candidate.check(timeout=2_000)
+        return True
+    except Exception:  # noqa: BLE001
+        pass
+    for expression in (
+        "el => el.closest('label')",
+        "el => el.closest(\"[role='radio'], [role='checkbox']\")",
+    ):
+        try:
+            target = candidate.evaluate_handle(expression).as_element()
+        except Exception:  # noqa: BLE001
+            target = None
+        if target is None:
+            continue
+        try:
+            target.click(timeout=2_000)
+            return True
+        except Exception:  # noqa: BLE001
+            continue
+    try:
+        candidate.click(force=True, timeout=2_000)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def context_for(config: dict, pack, evidence: list[str] | None = None):
@@ -1905,13 +2203,42 @@ def required_still_empty(page) -> list[str]:
     return page.evaluate(
         """
         () => {
+          const clean = (t) => (t || '').replace(/\\s+/g, ' ').trim();
+          const labelOf = (el) => {
+            const kind = (el.type || '').toLowerCase();
+            const fieldset = el.closest('fieldset');
+            if ((kind === 'radio' || kind === 'checkbox') && fieldset) {
+              const legend = fieldset.querySelector('legend');
+              if (legend && clean(legend.innerText)) return clean(legend.innerText);
+              const ids = fieldset.getAttribute('aria-labelledby') || '';
+              const named = clean(ids.split(/\\s+/).map((id) => {
+                const node = id ? document.getElementById(id) : null;
+                return node ? node.innerText : '';
+              }).join(' '));
+              if (named) return named;
+            }
+            const entry = el.closest('[data-field-path]');
+            if (entry) {
+              const own = entry.querySelector('label');
+              if (own && clean(own.innerText)) return clean(own.innerText);
+            }
+            return el.labels && el.labels.length ? clean(el.labels[0].innerText) : (el.name || el.id);
+          };
           const out = [];
           for (const el of document.querySelectorAll('input, select, textarea')) {
             if (!el.required || el.disabled) continue;
-            const empty = !el.value || (el.type === 'file' && !el.files.length);
+            const kind = (el.type || '').toLowerCase();
+            // A radio group marks every input required, and an unchecked radio
+            // still carries a value attribute, so "value is non-empty" would
+            // call a skipped knockout question answered.
+            const empty = (kind === 'radio' || kind === 'checkbox')
+              ? !el.checked
+              : (!el.value || (kind === 'file' && !el.files.length));
             if (!empty) continue;
-            const label = el.labels && el.labels.length ? el.labels[0].innerText : (el.name || el.id);
-            out.push(label.replace(/\\s*\\*\\s*$/, '').trim());
+            const label = labelOf(el).replace(/\\s*\\*\\s*$/, '').trim();
+            // An unlabelled control is still listed, but by its name or id, not
+            // as an empty string a reader cannot act on.
+            out.push(label || el.name || el.id || el.getAttribute('placeholder') || 'unlabelled field');
           }
           return out;
         }
@@ -2017,6 +2344,16 @@ def run(
             # single-page form implements fill_form, and run() never needs to
             # know which it is holding.
             report = form.fill(page, values, ctx, advance=advance, login=login)
+            if not report.error and not (
+                report.filled or report.steps or report.questions_answered
+            ):
+                # A closed posting redirects to a board index, and a page that
+                # never rendered looks the same from here: no controls, no
+                # error. Saying "nothing to fill" is the honest report.
+                report.error = (
+                    f"no form fields found at {page.url}; the posting may be closed "
+                    "or the page did not render"
+                )
             if report.sign_in:
                 if trace is not None:
                     trace.note("account", report.sign_in)
