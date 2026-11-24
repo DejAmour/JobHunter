@@ -290,8 +290,7 @@ def test_the_wizard_runs_the_whole_way_to_my_information(site, page):
         fill.Values(first_name="Jed", last_name="Dahlke"),
         None,
         advance=True,
-        email="candidate@example.com",
-        password="hunter2",
+        login=fill.Login(email="candidate@example.com", password="hunter2"),
     )
     assert report.error == ""
     assert report.sign_in == "signed-in"

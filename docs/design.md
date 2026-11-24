@@ -242,9 +242,13 @@ tried or considered and the reason it lost would otherwise be rediscovered.
   screenshot, which cannot distinguish a lost click from a server refusal.
   `evidence.py` records requests (secrets masked), console, DOM and a summary.
 - **ADR 4 — The apply side gets a contract.** `sources.py` has a `Source` base
-  class and a registry; `fill.py` has neither, and `run()` branches on the
-  string `"workday"`. The next ATS is a subclass, not a fourth copy of the
-  same six loops.
+  class and a registry; `fill.py` had neither, and `run()` branched on the
+  string `"workday"`. There is now an `Ats` base class with `fill`, `fill_form`
+  and `submit`, a `Login` value object for anything an account wall needs, and
+  one dispatch call in `run()`. A single-page form implements `fill_form`; a
+  wizard overrides `fill` because it owns the loop. The next ATS is a subclass,
+  not a fourth copy of the same six loops. A test asserts `run` contains no
+  ATS-specific code.
 - **ADR 5 — Recorded fixtures beat hand-written ones.** Tests built from markup
   we wrote pass while the live page fails. Behaviour is recorded from the real
   tenant once and replayed.

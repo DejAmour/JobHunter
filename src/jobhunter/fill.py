@@ -212,7 +212,73 @@ class FillReport:
 # --- per-ATS fillers -----------------------------------------------------
 
 
-class Greenhouse:
+@dataclass
+class Login:
+    """What a filler may need to get past an account wall.
+
+    Passing four loose parameters (email, password, create, on_code) was how
+    ``run`` grew a signature that only one ATS could use. This is the whole of
+    what any of them can need.
+    """
+
+    email: str = ""
+    password: str = ""
+    create: bool = False
+    on_code: object | None = None
+
+
+class Ats:
+    """One applicant-tracking system's form.
+
+    The contract ``run`` uses, and the same shape ``sources.Source`` has on the
+    discovery side: a small interface, a registry, and a factory, so adding an
+    ATS is a subclass rather than a copy of six loops and two string comparisons
+    in ``run``.
+
+    ``fill`` returns the report; ``fill_form`` is what a subclass implements for
+    a single page. A wizard overrides ``fill`` instead, because it owns the loop.
+    """
+
+    name = "base"
+
+    #: does this ATS put an account wall in front of the form?
+    needs_account = False
+
+    def fill(
+        self,
+        page,
+        values: "Values",
+        ctx=None,
+        *,
+        advance: bool = False,
+        login: Login | None = None,
+    ) -> "FillReport":
+        report = FillReport(url=page.url, ats=self.name)
+        self.fill_form(page, values, ctx, report)
+        return report
+
+    def fill_form(self, page, values: "Values", ctx, report: "FillReport") -> None:
+        """Fill whatever a single page shows. Subclasses must implement this."""
+        raise NotImplementedError
+
+    def submit(self, page) -> str:
+        """Press the final submit control. Empty on success, a reason on failure."""
+        button = page.query_selector(
+            "button[type='submit'], #btn-submit, [data-testid='submit-application']"
+        )
+        if button is None:
+            return "no submit control found"
+        before_url = page.url
+        before_page = _page_signature(page)
+        _click(page, button)
+        if _until_page_moves(page, before_url, before_page):
+            return ""
+        # A click that was dispatched is not a submission. The ledger is only
+        # evidence if it means "the page moved".
+        return "the submit control was clicked but the page did not move; not recorded as sent"
+
+
+class Greenhouse(Ats):
     name = "greenhouse"
 
     # Simple text inputs, by the ids the plugin documents.
@@ -227,8 +293,7 @@ class Greenhouse:
     SELECT = {"country": "#country"}
     FILE = {"resume": "#resume"}
 
-    def fill(self, page, values: Values, ctx=None) -> FillReport:
-        report = FillReport(url=page.url, ats=self.name)
+    def fill_form(self, page, values: Values, ctx, report: FillReport) -> None:
         self._text(page, values, report)
         self._select(page, values, report)
         self._file(page, values, report)
@@ -239,7 +304,6 @@ class Greenhouse:
                 'input[id^="question_"], select[id^="question_"], textarea[id^="question_"]',
                 report,
             )
-        return report
 
     def _text(self, page, values, report):
         data = values.as_dict()
@@ -288,7 +352,7 @@ class Greenhouse:
             report.filled.append(key)
 
 
-class Lever:
+class Lever(Ats):
     name = "lever"
 
     TEXT = {
@@ -299,8 +363,7 @@ class Lever:
     }
     FILE = {"resume": "input[name='resume'], #resume-upload-input"}
 
-    def fill(self, page, values: Values, ctx=None) -> FillReport:
-        report = FillReport(url=page.url, ats=self.name)
+    def fill_form(self, page, values: Values, ctx, report: FillReport) -> None:
         data = values.as_dict()
         for key, selector in self.TEXT.items():
             value = data.get(key, "")
@@ -349,10 +412,9 @@ class Lever:
                 "input[name^='cards['], select[name^='cards['], textarea[name^='cards[']",
                 report,
             )
-        return report
 
 
-class GenericQuestions:
+class GenericQuestions(Ats):
     """Answers whatever question fields a page shows, and nothing else.
 
     Used for pages whose standard fields a dedicated filler already handled —
@@ -362,8 +424,7 @@ class GenericQuestions:
 
     name = "questions"
 
-    def fill(self, page, values: Values, ctx=None) -> FillReport:
-        report = FillReport(url=page.url, ats=self.name)
+    def fill_form(self, page, values: Values, ctx, report: FillReport) -> None:
         if ctx is not None:
             fill_questions(
                 page,
@@ -371,10 +432,9 @@ class GenericQuestions:
                 "form input, form select, form textarea",
                 report,
             )
-        return report
 
 
-class Workday:
+class Workday(Ats):
     """Workday's wizard, one step at a time.
 
     Workday is five pages behind an account: My Information, My Experience,
@@ -386,6 +446,9 @@ class Workday:
     """
 
     name = "workday"
+
+    # Workday puts an account wall in front of every form.
+    needs_account = True
 
     STEP_MARKERS = (
         # Create Account and Sign In are one page, two forms, so order matters.
@@ -543,13 +606,14 @@ class Workday:
         *,
         advance: bool = False,
         steps: int = 6,
-        email: str = "",
-        password: str = "",
-        create_account: bool = False,
-        on_code=None,
+        login: Login | None = None,
     ) -> FillReport:
         report = FillReport(url=page.url, ats=self.name)
         data = values.as_dict()
+        email = login.email if login else ""
+        password = login.password if login else ""
+        create_account = login.create if login else False
+        on_code = login.on_code if login else None
 
         # From a job posting: accept cookies, Apply, Apply Manually, then step 1.
         # A page that is already a form returns immediately.
@@ -1885,8 +1949,8 @@ def run(
         return FillReport(url=url, ats=ats, error="playwright is not installed")
 
     kind = ats or detect_ats(url)
-    filler = FILLERS.get(kind)
-    if filler is None:
+    filler_class = FILLERS.get(kind)
+    if filler_class is None:
         return FillReport(
             url=url,
             ats=kind,
@@ -1895,6 +1959,7 @@ def run(
                 f"known fillers: {', '.join(sorted(FILLERS))}"
             ),
         )
+    form = filler_class()
 
     # Read the account once, before a browser opens: the password is also the
     # string that has to be scrubbed out of the trace.
@@ -1942,23 +2007,19 @@ def run(
                 trace.note("goto", url)
             page.wait_for_timeout(1200)
             report.url = page.url
-            if kind != "workday":
-                report = filler().fill(page, values, ctx)
-            if kind == "workday":
-                # Workday is a wizard with an account wall in front of it, so it
-                # gets the whole run to itself rather than a generic pass first.
-                report = Workday().fill(
-                    page,
-                    values,
-                    ctx,
-                    advance=advance,
-                    email=email,
-                    password=password,
-                    create_account=create_account,
-                    on_code=on_code,
-                )
+            login = Login(
+                email=email,
+                password=password,
+                create=create_account,
+                on_code=on_code,
+            )
+            # One call. No `if kind == "workday"`: a wizard overrides fill, a
+            # single-page form implements fill_form, and run() never needs to
+            # know which it is holding.
+            report = form.fill(page, values, ctx, advance=advance, login=login)
+            if report.sign_in:
                 if trace is not None:
-                    trace.note("account", report.sign_in or "not attempted")
+                    trace.note("account", report.sign_in)
                 if report.sign_in in ("created", "signed-in") and account is not None and home is not None:
                     from . import accounts as accounts_module
 
@@ -1988,27 +2049,13 @@ def run(
                 report.screenshot = str(shot)
 
             if submit:
-                button = page.query_selector(
-                    "button[type='submit'], #btn-submit, [data-testid='submit-application']"
-                )
-                if button is None:
-                    report.error = "no submit control found"
-                else:
-                    before_url = page.url
-                    before_page = _page_signature(page)
-                    if trace is not None:
-                        trace.note("submit", "clicking the submit control")
-                    _click(page, button)
-                    moved = _until_page_moves(page, before_url, before_page)
-                    report.submitted = moved
-                    report.url = page.url
-                    if not moved:
-                        # A click that was dispatched is not a submission. The
-                        # ledger is only evidence if it means "the page moved".
-                        report.error = (
-                            "the submit control was clicked but the page did not "
-                            "move; not recorded as sent"
-                        )
+                reason = form.submit(page)
+                report.submitted = not reason
+                report.url = page.url
+                if trace is not None:
+                    trace.note("submit", reason or "the page moved after submit")
+                if reason:
+                    report.error = reason
         except Exception as error:  # noqa: BLE001
             report = FillReport(
                 url=url, ats=kind, error=f"{type(error).__name__}: {error}"
