@@ -27,8 +27,8 @@ projects draw the same line independently. See "Assessments" in
 Working today:
 
 - **Discovery** — reads employer job boards (Greenhouse, Lever, Workable,
-  Ashby, Workday, SEEK, SmartRecruiters) and, for coverage, Adzuna, Reed,
-  Indeed and JobSpy. Filters by title and location, screens what survives, and
+  Ashby, Workday, Oracle HCM, SEEK, SmartRecruiters) and, for coverage, Adzuna,
+  Reed, Indeed and JobSpy. Filters by title and location, screens what survives, and
   stores it.
 - **Dashboard** — a local web app tracking jobs, applications, assessments,
   interviews, outreach and CV versions.
@@ -48,8 +48,7 @@ Working today:
 
 Not yet: SmartRecruiters form filling (its apply page is served behind a
 DataDome challenge, so the markup has to be recorded from a signed-in browser
-once); Oracle HCM discovery; an answer-bank UI (the fact sheet is edited with
-`jobhunter facts`).
+once); an answer-bank UI (the fact sheet is edited with `jobhunter facts`).
 
 ## Accounts and passwords
 
@@ -140,7 +139,7 @@ system it loads, calls that system's API, and only writes the entry if jobs came
 back. A 404 guess and an employer with no public board look identical, which is
 why guessing slugs is not how the registry grows.
 
-Boards read directly: Greenhouse, Lever, Workable, Ashby, Workday,
+Boards read directly: Greenhouse, Lever, Workable, Ashby, Workday, Oracle HCM,
 SmartRecruiters, SEEK.
 
 Indeed and its siblings: JobSpy (`pip install python-jobspy`), which also

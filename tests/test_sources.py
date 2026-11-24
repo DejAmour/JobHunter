@@ -68,3 +68,81 @@ def test_jobspy_cell_cleaning():
     assert sources._clean_cell(float("nan")) == ""
     assert sources._clean_cell(None) == ""
     assert sources._clean_cell("  Acme  ") == "Acme"
+
+
+def test_oracle_reads_the_requisition_list_and_builds_job_urls(monkeypatch):
+    calls = []
+
+    def fake_json(url, *, body=None, retries=4):
+        calls.append(url)
+        return {
+            "items": [
+                {
+                    "TotalJobsCount": 2,
+                    "requisitionList": [
+                        {
+                            "Id": "210811920",
+                            "Title": "Investment Analyst",
+                            "PrimaryLocation": "LONDON, United Kingdom",
+                            "PostedDate": "2026-11-24",
+                            "Department": "Investments",
+                            "ShortDescriptionStr": "<p>Join the team.</p>",
+                        }
+                    ],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(sources, "_json", fake_json)
+    source = sources.build(
+        {"name": "JPMorgan", "ats": "oracle", "host": "jpmc.fa.oraclecloud.com", "site": "CX_1001"},
+        ["investment"],
+    )
+    postings = source.list()
+
+    assert len(postings) == 1
+    posting = postings[0]
+    assert posting.title == "Investment Analyst"
+    assert posting.url == (
+        "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210811920"
+    )
+    assert posting.posted_at == "2026-11-24"
+    assert "Join the team." in posting.description
+    # The target title is a keyword, not a full board crawl.
+    assert "keyword%3Dinvestment" in calls[0] or "keyword=investment" in calls[0]
+
+
+def test_oracle_detail_asks_by_requisition_id(monkeypatch):
+    seen = []
+
+    def fake_json(url, *, body=None, retries=4):
+        seen.append(url)
+        return {"items": [{"ExternalDescriptionStr": "<p>The full advert.</p>"}]}
+
+    monkeypatch.setattr(sources, "_json", fake_json)
+    source = sources.build(
+        {"name": "Schroders", "ats": "oracle", "host": "ekbq.fa.em2.oraclecloud.com", "site": "CX_2"}
+    )
+    posting = sources.Posting(
+        company="Schroders",
+        title="Analyst",
+        location="London",
+        url="https://ekbq.fa.em2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2/job/42",
+        source="oracle",
+    )
+    text = source.detail(posting)
+    assert text == "The full advert."
+    assert "recruitingCEJobRequisitionDetails" in seen[0]
+    assert "Id%3D%2242%22" in seen[0] or 'Id=%2242%22' in seen[0]
+
+
+def test_oracle_is_detected_from_a_candidate_experience_url():
+    entry = probe._match(
+        "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/1"
+    )
+    assert entry == {
+        "name": "",
+        "ats": "oracle",
+        "host": "jpmc.fa.oraclecloud.com",
+        "site": "CX_1001",
+    }

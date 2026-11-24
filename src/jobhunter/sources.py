@@ -302,6 +302,93 @@ class Workday(Source):
         return _strip(info.get("jobDescription") or "")
 
 
+class Oracle(Source):
+    """Oracle Recruiting Cloud, whose careers site is a REST API behind a JS shell.
+
+    ``host`` is the tenant (``jpmc.fa.oraclecloud.com``) and ``site`` the site
+    number from the candidate-experience URL (``CX_1001``). The finder endpoint
+    takes a keyword, so a target title is looked up directly: JPMorgan alone has
+    ~3,000 open requisitions and paging them all would be neither quick nor
+    polite. The description is a second call, made only for postings that
+    survived screening.
+
+    The API's own URL is not stable across tenants, but its shape is: every
+    Oracle HCM site serves ``/hcmRestApi/resources/latest`` and every job page
+    lives at ``/hcmUI/CandidateExperience/<locale>/sites/<site>/job/<id>``.
+    """
+
+    name = "oracle"
+
+    def __init__(
+        self,
+        company: str = "",
+        host: str = "",
+        site: str = "CX_1",
+        **options: Any,
+    ) -> None:
+        super().__init__(company, **options)
+        stem = company.lower().replace(" ", "").replace("&", "")
+        self.host = host or f"{stem}.fa.oraclecloud.com"
+        self.site = site or "CX_1"
+        self.api = f"https://{self.host}/hcmRestApi/resources/latest"
+        self.portal = f"https://{self.host}/hcmUI/CandidateExperience/en/sites/{self.site}"
+
+    def search(self, term: str = "", limit: int = 100, offset: int = 0) -> list[Posting]:
+        finder = f"findReqs;siteNumber={self.site}"
+        if term:
+            finder += f",keyword={term}"
+        finder += f",limit={limit},offset={offset},sortBy=POSTING_DATES_DESC"
+        data = _json(
+            f"{self.api}/recruitingCEJobRequisitions"
+            "?onlyData=true&expand=requisitionList.secondaryLocations"
+            f"&finder={urllib.parse.quote(finder, safe=';=,')}"
+        )
+        items = data.get("items") or [{}]
+        out = []
+        for job in items[0].get("requisitionList", []):
+            job_id = str(job.get("Id") or "")
+            out.append(
+                Posting(
+                    company=self.company,
+                    title=(job.get("Title") or "").strip(),
+                    location=job.get("PrimaryLocation") or "",
+                    url=f"{self.portal}/job/{job_id}" if job_id else "",
+                    source=self.name,
+                    description=_strip(job.get("ShortDescriptionStr") or ""),
+                    department=job.get("Department") or job.get("JobFamily") or job.get("JobFunction") or "",
+                    posted_at=(job.get("PostedDate") or "")[:10] or None,
+                )
+            )
+        return out
+
+    def list(self) -> list[Posting]:
+        terms = self.options.get("terms") or [""]
+        seen: dict[str, Posting] = {}
+        for term in terms:
+            for posting in self.search(str(term)):
+                if posting.url and posting.url not in seen:
+                    seen[posting.url] = posting
+            time.sleep(PAUSE)
+        return list(seen.values())
+
+    def detail(self, posting: Posting) -> str:
+        job_id = posting.url.rstrip("/").rsplit("/", 1)[-1] if posting.url else ""
+        if not job_id:
+            return posting.description
+        finder = f'ById;Id="{job_id}",siteNumber={self.site}'
+        data = _json(
+            f"{self.api}/recruitingCEJobRequisitionDetails"
+            f"?expand=all&onlyData=true&finder={urllib.parse.quote(finder, safe=';=,')}"
+        )
+        items = data.get("items") or [{}]
+        detail = items[0]
+        return _strip(
+            detail.get("ExternalDescriptionStr")
+            or detail.get("ShortDescriptionStr")
+            or posting.description
+        )
+
+
 class Seek(Source):
     """SEEK's own search endpoint, which its front end calls.
 
@@ -895,6 +982,7 @@ KINDS = {
     "workable": Workable,
     "ashby": Ashby,
     "workday": Workday,
+    "oracle": Oracle,
     "seek": Seek,
     "smartrecruiters": SmartRecruiters,
     "adzuna": Adzuna,
@@ -911,7 +999,7 @@ def build(entry: dict, title_terms: list[str] | None = None) -> Source:
         raise SourceError(f"unknown ats {kind!r} for {entry.get('name')!r}")
     cls = KINDS[kind]
     options = {k: v for k, v in entry.items() if k not in {"name", "ats", "notes"}}
-    if kind == "workday":
+    if kind in ("workday", "oracle"):
         options["terms"] = title_terms or [""]
     if kind == "adzuna":
         # firms.toml says "uk" like everything else; Adzuna names its markets gb/au.

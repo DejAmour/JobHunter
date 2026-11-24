@@ -36,7 +36,6 @@ UNSUPPORTED = (
     ("icims", re.compile(r"([a-z0-9-]+)\.icims\.com", re.I)),
     ("taleo", re.compile(r"([a-z0-9-]+)\.taleo\.net", re.I)),
     ("successfactors", re.compile(r"([a-z0-9-]+)\.successfactors\.(?:com|eu)", re.I)),
-    ("oracle", re.compile(r"([a-z0-9]+)\.oraclecloud\.com/hcmUI", re.I)),
     ("tribepad", re.compile(r"([a-z0-9-]+)\.tribepad\.com", re.I)),
     ("pageup", re.compile(r"([a-z0-9-]+)\.pageuppeople\.com", re.I)),
 )
@@ -48,6 +47,15 @@ PATTERNS: tuple[tuple[str, re.Pattern[str], int], ...] = (
     ("ashby", re.compile(r"jobs\.ashbyhq\.com/([a-z0-9_.-]+)", re.I), 1),
     ("smartrecruiters", re.compile(r"(?:jobs|careers)\.smartrecruiters\.com/([a-z0-9_-]+)", re.I), 1),
     ("workday", re.compile(r"([a-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:en-[A-Z]+/)?([A-Za-z0-9_-]+)"), 3),
+    (
+        "oracle",
+        re.compile(
+            r"https?://([a-z0-9.-]+\.oraclecloud\.com)/hcmUI/CandidateExperience/"
+            r"(?:[a-z]{2}(?:-[A-Z]{2})?/)?sites/([A-Za-z0-9_]+)",
+            re.I,
+        ),
+        2,
+    ),
 )
 
 
@@ -107,6 +115,9 @@ def _match(html: str) -> dict | None:
         if ats == "workday":
             tenant, wd, site = parts
             return {"name": "", "ats": "workday", "tenant": tenant, "wd": wd, "site": site}
+        if ats == "oracle":
+            host, site = parts
+            return {"name": "", "ats": "oracle", "host": host, "site": site}
         return {"name": "", "ats": ats, "slug": parts[0]}
     for ats, pattern in UNSUPPORTED:
         match = pattern.search(html)
@@ -197,7 +208,7 @@ def _pretty_name(domain: str) -> str:
 
 def as_toml(entry: dict) -> str:
     """One ``[[firms]]`` block, in the same key order as the hand-written file."""
-    order = ("name", "ats", "slug", "tenant", "wd", "site", "country", "notes")
+    order = ("name", "ats", "slug", "host", "tenant", "wd", "site", "country", "notes")
     lines = ["[[firms]]"]
     for key in order:
         if key in entry and entry[key] != "":
