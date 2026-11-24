@@ -2255,7 +2255,7 @@ def run(
     submit: bool = False,
     advance: bool = False,
     headless: bool = True,
-    hold: bool = False,
+    hold: bool | object = False,
     screenshot_dir: Path | None = None,
     timeout_ms: int = 45_000,
     account=None,
@@ -2398,15 +2398,18 @@ def run(
             if hold:
                 # The browser closes at the end of every run, which leaves no way
                 # to finish the parts this tool deliberately will not touch:
-                # disclosures, a date, a cover letter. With --hold the window
-                # stays open and the run ends when you say so, not when a timer
-                # does.
+                # disclosures, a date, a cover letter. With hold the window stays
+                # open and the run ends when you say so, not when a timer does.
+                # The dashboard passes an Event; the terminal passes input().
                 print(
                     "\n  the browser is open. Finish or submit the application there, "
                     "then press Enter here to close it."
                 )
                 try:
-                    input()
+                    if callable(hold):
+                        hold()
+                    else:
+                        input()
                 except (EOFError, KeyboardInterrupt):
                     pass
                 report.url = page.url

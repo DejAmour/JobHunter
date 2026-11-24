@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from flask import Flask, abort, redirect, render_template, request, url_for
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
 
 from . import cv, db, screening
 
@@ -284,6 +284,10 @@ def create_app(store: Path, config_path: Path) -> Flask:
 
         missing = [item.lstrip("• ").strip() for item in (report.missing if report else ())]
 
+        from . import runs
+
+        run = runs.get(request.args.get("run", "")) or runs.active_for(job_id)
+
         return render_template(
             "job.html",
             job=row,
@@ -293,6 +297,8 @@ def create_app(store: Path, config_path: Path) -> Flask:
             report=report,
             missing=missing,
             agency=is_agency(row["company"]),
+            run=run,
+            can_fill=(row["url"] or "").startswith("http"),
         )
 
     @app.post("/jobs/<int:job_id>/decision")
@@ -310,6 +316,57 @@ def create_app(store: Path, config_path: Path) -> Flask:
         with _connect(store) as connection:
             connection.execute("UPDATE jobs SET notes = ? WHERE id = ?", (note, job_id))
         return redirect(url_for("job", job_id=job_id))
+
+    @app.post("/jobs/<int:job_id>/fill")
+    def start_fill(job_id: int):
+        """Start a browser run and send the page to its progress panel."""
+        from . import runs
+
+        with _connect(store) as connection:
+            row = connection.execute("SELECT id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if row is None:
+            abort(404)
+
+        run = runs.start_fill(
+            store,
+            config,
+            job_id,
+            root=Path(__file__).resolve().parents[2],
+            advance=request.form.get("advance") == "1",
+            submit=request.form.get("submit") == "1",
+            hold=request.form.get("hold") == "1",
+            ats=request.form.get("ats", "").strip(),
+        )
+        return redirect(url_for("job", job_id=job_id, run=run.id))
+
+    @app.get("/runs/<run_id>.json")
+    def run_status(run_id: str):
+        from . import runs
+
+        run = runs.get(run_id)
+        if run is None:
+            abort(404)
+        return jsonify(run.as_dict())
+
+    @app.post("/runs/<run_id>/release")
+    def run_release(run_id: str):
+        """The human is finished with the open browser; let the run close it."""
+        from . import runs
+
+        run = runs.get(run_id)
+        if run is None:
+            abort(404)
+        run.release.set()
+        return jsonify(run.as_dict())
+
+    @app.get("/runs/<run_id>/screenshot")
+    def run_screenshot(run_id: str):
+        from . import runs
+
+        run = runs.get(run_id)
+        if run is None or not run.screenshot:
+            abort(404)
+        return send_file(run.screenshot)
 
     # --- applications -----------------------------------------------------
 

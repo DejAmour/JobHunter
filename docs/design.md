@@ -283,3 +283,14 @@ tried or considered and the reason it lost would otherwise be rediscovered.
   the form actually offered, or None. A model could sit behind the same
   signature, choosing from the same list; nothing else would change. What it
   will never do is type into a field or press a button.
+
+- **ADR 10 - The dashboard is the interface; the terminal is for scripts.** The
+  apply flow was only reachable by remembering two commands and a job number,
+  which made the tool feel like a workbench rather than a product. A run is now
+  a thread with a small record (`runs.py`): the job page starts it, polls it, and
+  keeps a headed browser open until the human presses Done. The interactive
+  moment is a `threading.Event`, not `input()`, so the same filler serves both
+  front ends; the terminal passes its own waiter. Two things stay in the
+  terminal because they cannot be done safely from a web form: registering a
+  Workday account (a password must be typed somewhere it is not logged) and
+  anything that prints a stored secret.

@@ -517,44 +517,12 @@ def main(argv: list[str] | None = None) -> int:
         print(report.summary())
 
         # Record the attempt against the application, so the ledger says a form
-        # was filled even when nothing was sent. Until now a row only existed if
-        # `apply` had been run first, so four steps of work left no trace at all.
-        with db.connect(store) as connection:
-            row = connection.execute(
-                "SELECT id, note FROM applications WHERE job_id = ? ORDER BY id DESC LIMIT 1",
-                (args.job,),
-            ).fetchone()
-            stamp = db.now()[:16].replace("T", " ")
-            entry = f"{stamp}: filled form ({report.ats}), submitted={bool(args.submit)}"
-            if report.steps:
-                entry += f", steps {' -> '.join(report.steps)}"
-            if report.screenshot:
-                entry += f", screenshot {report.screenshot}"
-            if report.trace_path:
-                entry += f", trace {report.trace_path}"
+        # was filled even when nothing was sent. The dashboard's runs use the
+        # same writer, so a run started from the web and one started from the
+        # terminal leave identical evidence.
+        from . import runs
 
-            sent = bool(args.submit and report.submitted)
-            reached = bool(report.filled or report.steps)
-            if row is None and reached:
-                db.record_application(
-                    connection,
-                    job_id=args.job,
-                    status="draft",
-                    approval="pending",
-                    proof_path=report.screenshot or report.trace_path or None,
-                    note=entry,
-                    stage="applied" if sent else "draft",
-                    variant=pack.variant,
-                    country=pack.market,
-                )
-            elif row is not None:
-                note = (row["note"] or "").strip()
-                connection.execute(
-                    "UPDATE applications SET note = ?, updated_at = ? WHERE id = ?",
-                    (f"{note}\n{entry}".strip(), db.now(), row["id"]),
-                )
-                if sent:
-                    db.set_application_stage(connection, int(row["id"]), "applied")
+        runs.record_attempt(store, args.job, report, variant=pack.variant, market=pack.market)
         return 0 if not report.error else 1
 
     if args.command == "login":

@@ -80,6 +80,47 @@
   </div>
 
   <div>
+    <h2>Apply</h2>
+    <div class="panel">
+      {% if can_fill %}
+        {% if run and run.active %}
+          <div class="small muted" id="run-hint">A run is in progress for this job; its progress is below.</div>
+          <div id="run-again" class="small" hidden style="margin-top:6px"><a href="{{ url_for('job', job_id=job['id']) }}">Run again</a></div>
+        {% else %}
+        <form method="post" action="{{ url_for('start_fill', job_id=job['id']) }}">
+          <div class="small muted">Fills the employer's own form from your answer bank, then stops. Nothing is sent unless you tick the submit box.</div>
+          <label class="small" style="display:block; margin-top:10px">
+            <input type="checkbox" name="hold" value="1" checked>
+            keep the browser open so I can finish and submit it
+          </label>
+          <label class="small" style="display:block">
+            <input type="checkbox" name="advance" value="1" checked>
+            walk Workday's steps (Save and continue)
+          </label>
+          <label class="small" style="display:block">
+            <input type="checkbox" name="submit" value="1">
+            press submit automatically (cannot be undone)
+          </label>
+          <details style="margin-top:8px">
+            <summary class="small muted">the link is not the employer's page</summary>
+            <input name="ats" placeholder="greenhouse / lever / workable / ashby / workday">
+            <div class="small faint">Only needed for a fixture or a board that cannot be detected from the URL.</div>
+          </details>
+          <div class="row" style="margin-top:10px"><button type="submit">Fill the form</button></div>
+        </form>
+        {% endif %}
+      {% else %}
+        <div class="small muted">This posting has no web address to open.</div>
+      {% endif %}
+
+      <div id="run-status" data-run="{{ run.id if run else '' }}" hidden style="margin-top:14px; border-top:1px solid #eee; padding-top:12px">
+        <div id="run-headline" class="small" style="font-weight:600"></div>
+        <div id="run-message" class="small muted" style="margin-top:2px"></div>
+        <ul id="run-detail" class="small" style="margin:8px 0 0 18px; padding:0"></ul>
+        <div id="run-actions" class="row" style="margin-top:10px; gap:10px; flex-wrap:wrap"></div>
+      </div>
+    </div>
+
     <h2>Application</h2>
     {% if application %}
       <div class="panel">
@@ -115,5 +156,82 @@
     </form>
   </div>
 </div>
+
+<script>
+(() => {
+  const box = document.getElementById("run-status");
+  const runID = box && box.dataset.run;
+  if (!box || !runID) return;
+  box.hidden = false;
+
+  const headline = document.getElementById("run-headline");
+  const message = document.getElementById("run-message");
+  const detail = document.getElementById("run-detail");
+  const actions = document.getElementById("run-actions");
+  const line = (text) => {
+    const li = document.createElement("li");
+    li.textContent = text;
+    return li;
+  };
+
+  async function poll() {
+    let data;
+    try {
+      const response = await fetch(`/runs/${runID}.json`, { cache: "no-store" });
+      if (!response.ok) throw new Error(String(response.status));
+      data = await response.json();
+    } catch (error) {
+      headline.textContent = "lost contact with the run";
+      setTimeout(poll, 4000);
+      return;
+    }
+
+    headline.textContent = `${data.status} · ${data.elapsed}s`;
+    message.textContent = data.message || "";
+    detail.replaceChildren();
+    if (data.steps.length) detail.append(line(`steps: ${data.steps.join(" -> ")}`));
+    if (data.filled.length) detail.append(line(`filled: ${data.filled.join(", ")}`));
+    for (const pair of data.answered) detail.append(line(`${pair[0]} -> ${pair[1]}`));
+    for (const pair of data.review) detail.append(line(`left for you: ${pair[0]} (${pair[1]})`));
+    if (data.required_left.length) detail.append(line(`still required: ${data.required_left.join(", ")}`));
+    if (data.error) detail.append(line(`error: ${data.error}`));
+
+    actions.replaceChildren();
+    if (data.status === "waiting") {
+      const done = document.createElement("button");
+      done.textContent = "Done — close the browser";
+      done.onclick = async () => {
+        done.disabled = true;
+        await fetch(`/runs/${runID}/release`, { method: "POST" });
+        poll();
+      };
+      actions.append(done);
+    }
+    if (data.has_screenshot) {
+      const link = document.createElement("a");
+      link.href = `/runs/${runID}/screenshot`;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = "open the screenshot";
+      actions.append(link);
+    }
+    if (data.trace) {
+      const trace = document.createElement("span");
+      trace.className = "small faint";
+      trace.textContent = `trace: ${data.trace}`;
+      actions.append(trace);
+    }
+    if (["done", "failed"].includes(data.status)) {
+      const hint = document.getElementById("run-hint");
+      if (hint) hint.hidden = true;
+      const again = document.getElementById("run-again");
+      if (again) again.hidden = false;
+    }
+    if (["queued", "running", "waiting"].includes(data.status)) setTimeout(poll, 2000);
+  }
+
+  poll();
+})();
+</script>
 
 {% endblock %}

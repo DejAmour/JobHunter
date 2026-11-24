@@ -191,7 +191,34 @@ checklist in `output/applications/<company>-<role>/application.md`.
 
 Nothing is submitted and nothing is invented.
 
-## Filling the form
+## Applying from the dashboard
+
+Everything below has a button. Open a job, and the **Apply** panel will:
+
+1. build the pack (CV variant, answers, checklist) and record a draft;
+2. open the employer's form in a browser and fill what the answer bank covers;
+3. keep the browser open so you can finish and submit it yourself, then press
+   **Done — close the browser** in the dashboard.
+
+The panel polls while it runs and lists what was filled, what was answered, what
+is still yours to answer, and where the screenshot and trace are. Nothing is
+sent unless you tick **press submit automatically**.
+
+Two limits the buttons cannot hide:
+
+- a posting whose URL is an agency page (Adzuna, Reed, Indeed) has no employer
+  form to drive — the run will say it found nothing to fill;
+- a new Workday tenant needs its account registered once, from a terminal
+  (`jobhunter account add --firm "..."`), because the password is read from the
+  Windows Credential Manager and has to be typed somewhere it is not logged.
+
+The same thing from a terminal, when you want it in a script:
+
+```
+python -m jobhunter fill --job 2 --hold
+```
+
+### Filling the form
 
 ```
 python -m jobhunter fill --job 2            # fills, screenshots, stops
