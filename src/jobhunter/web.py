@@ -287,6 +287,7 @@ def create_app(store: Path, config_path: Path) -> Flask:
         from . import runs
 
         run = runs.get(request.args.get("run", "")) or runs.active_for(job_id)
+        from . import resolve
 
         return render_template(
             "job.html",
@@ -299,6 +300,7 @@ def create_app(store: Path, config_path: Path) -> Flask:
             agency=is_agency(row["company"]),
             run=run,
             can_fill=(row["url"] or "").startswith("http"),
+            handoff=resolve.looks_like_aggregator(row["url"] or ""),
         )
 
     @app.post("/jobs/<int:job_id>/decision")

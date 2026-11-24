@@ -2277,6 +2277,44 @@ def run(
         return FillReport(url=url, ats=ats, error="playwright is not installed")
 
     kind = ats or detect_ats(url)
+    #: why the URL changed, when it did: an aggregator's Apply link was followed
+    handoff_note = ""
+
+    if not kind:
+        from . import resolve as handoff
+
+        if handoff.looks_like_aggregator(url):
+            outcome = handoff.resolve(url, headless=headless, timeout_ms=timeout_ms)
+            if outcome.closed:
+                return FillReport(
+                    url=url,
+                    ats="",
+                    error=(
+                        "the listing has closed: Adzuna/Reed is saying the job is no "
+                        "longer available, so there is no form to send. Find the role "
+                        "on the employer's own site or through the agency."
+                    ),
+                )
+            if outcome.final_url and detect_ats(outcome.final_url):
+                url = outcome.final_url
+                kind = detect_ats(url)
+                handoff_note = f"followed the listing's Apply link to {kind}"
+            elif outcome.final_url:
+                return FillReport(
+                    url=outcome.final_url,
+                    ats="",
+                    error=(
+                        f"the application happens on {outcome.host or 'another site'}, "
+                        f"which has no filler yet: {outcome.final_url}"
+                    ),
+                )
+            else:
+                return FillReport(
+                    url=url,
+                    ats="",
+                    error=f"could not follow this listing's Apply link ({outcome.note})",
+                )
+
     filler_class = FILLERS.get(kind)
     if filler_class is None:
         return FillReport(
@@ -2345,6 +2383,8 @@ def run(
             # single-page form implements fill_form, and run() never needs to
             # know which it is holding.
             report = form.fill(page, values, ctx, advance=advance, login=login)
+            if handoff_note:
+                report.notes.insert(0, handoff_note)
             if not report.error and not (
                 report.filled or report.steps or report.questions_answered
             ):

@@ -89,6 +89,7 @@
         {% else %}
         <form method="post" action="{{ url_for('start_fill', job_id=job['id']) }}">
           <div class="small muted">Fills the employer's own form from your answer bank, then stops. Nothing is sent unless you tick the submit box.</div>
+          {% if handoff %}<div class="small faint" style="margin-top:6px">This is an aggregator listing, not the employer's form. The run will follow its Apply link and say so if the advert has closed.</div>{% endif %}
           <label class="small" style="display:block; margin-top:10px">
             <input type="checkbox" name="hold" value="1" checked>
             keep the browser open so I can finish and submit it
@@ -194,7 +195,7 @@
     for (const pair of data.answered) detail.append(line(`${pair[0]} -> ${pair[1]}`));
     for (const pair of data.review) detail.append(line(`left for you: ${pair[0]} (${pair[1]})`));
     if (data.required_left.length) detail.append(line(`still required: ${data.required_left.join(", ")}`));
-    if (data.error) detail.append(line(`error: ${data.error}`));
+    if (data.error && data.error !== data.message) detail.append(line(`error: ${data.error}`));
 
     actions.replaceChildren();
     if (data.status === "waiting") {
