@@ -49,3 +49,14 @@ def test_evidence_comes_from_the_cv_not_from_thin_air():
     assert lines
     assert all("basketball" not in line for line in lines)
     assert any("portfolio" in line.lower() for line in lines)
+
+
+def test_a_title_that_names_credit_risk_picks_that_cv():
+    """"Credit Risk Analyst" matches both CVs' words; the specific one must win.
+
+    Without the "credit risk" term, Risk scored 1 for "risk" and Credit Risk 1
+    for "credit", and the dict order handed a credit role the risk CV.
+    """
+    variant, scores = apply.choose_variant("Credit Risk Analyst", "Counterparty credit risk team.")
+    assert variant == "Credit Risk"
+    assert scores["Credit Risk"] > scores["Risk"]

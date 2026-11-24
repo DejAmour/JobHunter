@@ -34,8 +34,11 @@ VARIANT_TERMS: dict[str, tuple[str, ...]] = {
         "model risk", "market risk", "scenario",
     ),
     "Credit Risk": (
-        "credit", "fixed income", "bond", "issuer", "rating", "spread",
-        "default", "covenant", "leverage", "high yield", "investment grade",
+        # "credit risk" is its own term: without it a title that says both words
+        # ties with the plain risk CV, whose "risk" term matches the same title.
+        "credit", "credit risk", "counterparty", "fixed income", "bond", "issuer",
+        "rating", "spread", "default", "covenant", "leverage", "high yield",
+        "investment grade",
     ),
     "Asset Management": (
         "investment management", "asset management", "fund", "portfolio",
