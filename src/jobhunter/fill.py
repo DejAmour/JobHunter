@@ -2255,6 +2255,7 @@ def run(
     submit: bool = False,
     advance: bool = False,
     headless: bool = True,
+    hold: bool = False,
     screenshot_dir: Path | None = None,
     timeout_ms: int = 45_000,
     account=None,
@@ -2393,6 +2394,23 @@ def run(
                     trace.note("submit", reason or "the page moved after submit")
                 if reason:
                     report.error = reason
+
+            if hold:
+                # The browser closes at the end of every run, which leaves no way
+                # to finish the parts this tool deliberately will not touch:
+                # disclosures, a date, a cover letter. With --hold the window
+                # stays open and the run ends when you say so, not when a timer
+                # does.
+                print(
+                    "\n  the browser is open. Finish or submit the application there, "
+                    "then press Enter here to close it."
+                )
+                try:
+                    input()
+                except (EOFError, KeyboardInterrupt):
+                    pass
+                report.url = page.url
+                report.required_left = required_still_empty(page)
         except Exception as error:  # noqa: BLE001
             report = FillReport(
                 url=url, ats=kind, error=f"{type(error).__name__}: {error}"

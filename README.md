@@ -195,8 +195,21 @@ Nothing is submitted and nothing is invented.
 
 ```
 python -m jobhunter fill --job 2            # fills, screenshots, stops
+python -m jobhunter fill --job 2 --hold     # fills, then leaves the window open
 python -m jobhunter fill --job 2 --submit   # presses submit
 ```
+
+`--hold` is the one to use in practice. The browser is headed and stays open
+after the fill, so you can finish the parts the tool deliberately will not touch
+— a date, a cover letter, voluntary disclosures — submit it yourself, then press
+Enter in the terminal to close it. Without `--hold` the window closes at the end
+of the run and all you have is the screenshot.
+
+One limit worth knowing: a posting whose URL is an aggregator (Adzuna, Reed,
+Indeed) has no employer form behind it, only a hand-off. Those are marked
+`apply` like any other, but `fill` will say it has no filler for the site. The
+filler needs the employer's own page — find the posting on their board, or
+record the agency's form once with `jobhunter record` and it becomes a filler.
 
 Greenhouse, Lever, Workable and Ashby are done. The filler opens the posting in a
 real browser, writes the values from `[answers]`, uploads the CV the pack chose,

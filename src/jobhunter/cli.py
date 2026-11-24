@@ -208,6 +208,11 @@ def main(argv: list[str] | None = None) -> int:
     fill_parser.add_argument("--url", default="", help="override the posting URL (useful for fixtures)")
     fill_parser.add_argument("--ats", default="", help="force a board type (greenhouse, lever, workable, ashby) instead of detecting it")
     fill_parser.add_argument("--advance", action="store_true", help="on Workday, walk to the next step after filling")
+    fill_parser.add_argument(
+        "--hold",
+        action="store_true",
+        help="leave the browser open so you can finish and submit it yourself",
+    )
     fill_parser.add_argument("--firm", default="", help="which employer account to use, if the URL does not say")
     fill_parser.add_argument(
         "--create-account",
@@ -496,7 +501,10 @@ def main(argv: list[str] | None = None) -> int:
             ctx=form_fill.context_for(config, pack),
             submit=args.submit,
             advance=args.advance,
-            headless=args.headless,
+            # A window you cannot see is not a window you can finish an
+            # application in, so --hold implies headed.
+            headless=args.headless and not args.hold,
+            hold=args.hold,
             screenshot_dir=root / "output" / "applications" / apply_pack._slug(
                 f"{pack.job['company']}-{pack.job['title']}"
             ),
