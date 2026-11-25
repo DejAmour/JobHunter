@@ -8,8 +8,21 @@
   something relevant; “ask” means a human should look before spending effort.
 </p>
 
-<form method="get" class="row" style="margin-bottom:18px">
-  <input type="search" name="q" value="{{ query }}" placeholder="title or company" style="min-width:230px">
+<div class="panel" style="margin-bottom:18px">
+  <form method="post" action="{{ url_for('start_discovery') }}" class="row" style="align-items:center">
+    <button type="submit">Read the boards now</button>
+    <input name="only" placeholder="only this employer (optional)" style="min-width:190px">
+    <span class="small muted">Re-runs discovery across every board in firms.toml. Takes a few minutes.</span>
+  </form>
+  <div id="discovery" data-run="{{ discovery.id if discovery else '' }}" hidden style="margin-top:12px">
+    <div id="d-headline" class="small" style="font-weight:600"></div>
+    <div id="d-message" class="small muted"></div>
+    <pre id="d-log" class="small" style="max-height:230px; overflow:auto; margin-top:8px; background:#fafafa; padding:10px; border:1px solid #eee"></pre>
+    <div id="d-actions" class="row" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<form method="get" class="row" style="margin-bottom:18px">  <input type="search" name="q" value="{{ query }}" placeholder="title or company" style="min-width:230px">
   <select name="decision">
     <option value="">any decision</option>
     {% for d in decisions %}<option value="{{ d }}" {{ 'selected' if decision == d }}>{{ d }}</option>{% endfor %}
@@ -82,5 +95,48 @@
 {% else %}
   <div class="panel empty">Nothing matches. Run <code>python -m jobhunter discover</code>.</div>
 {% endif %}
+
+<script>
+(() => {
+  const box = document.getElementById("discovery");
+  const runID = box && box.dataset.run;
+  if (!box || !runID) return;
+  box.hidden = false;
+
+  const headline = document.getElementById("d-headline");
+  const message = document.getElementById("d-message");
+  const log = document.getElementById("d-log");
+  const actions = document.getElementById("d-actions");
+
+  async function poll() {
+    let data;
+    try {
+      const response = await fetch(`/runs/${runID}.json`, { cache: "no-store" });
+      if (!response.ok) throw new Error(String(response.status));
+      data = await response.json();
+    } catch (error) {
+      headline.textContent = "lost contact with the run";
+      setTimeout(poll, 4000);
+      return;
+    }
+
+    headline.textContent = `${data.status} · ${data.elapsed}s`;
+    message.textContent = data.message || "";
+    log.textContent = (data.lines || []).slice(-40).join("\n");
+    log.scrollTop = log.scrollHeight;
+
+    actions.replaceChildren();
+    if (["done", "failed"].includes(data.status)) {
+      const again = document.createElement("a");
+      again.href = window.location.pathname;
+      again.textContent = "reload the list";
+      actions.append(again);
+    }
+    if (["queued", "running"].includes(data.status)) setTimeout(poll, 2500);
+  }
+
+  poll();
+})();
+</script>
 
 {% endblock %}

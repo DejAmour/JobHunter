@@ -24,16 +24,7 @@ _CV_CACHE: dict[tuple, str] = {}
 
 
 def _candidate(config: dict) -> screening.Candidate:
-    block = config.get("candidate", {})
-    return screening.Candidate(
-        needs_sponsorship=bool(block.get("needs_sponsorship", False)),
-        salary_floor=int(block["salary_floor"]) if block.get("salary_floor") is not None else None,
-        currency=str(block.get("currency", "GBP")),
-        remote_only=bool(block.get("remote_only", False)),
-        years_experience=float(block["years_experience"]) if block.get("years_experience") is not None else None,
-        clearances=tuple(block.get("clearances", [])),
-        right_to_work=block.get("right_to_work"),
-    )
+    return screening.candidate_from(config)
 
 
 def _cv_text_cached(path: Path) -> str:
@@ -271,11 +262,14 @@ def create_app(store: Path, config_path: Path) -> Flask:
             rows = [row for row in rows if not is_agency(row["company"])]
 
         pages = max(1, (total + per_page - 1) // per_page)
+        from . import runs
+
+        discovery = runs.get(request.args.get("run", "")) or runs.active_discovery()
         return render_template(
             "jobs.html", jobs=rows, decision=decision, country=country, query=query,
             senior=senior, agency=agency, applied=applied, page=page, pages=pages, total=total,
             first=(page - 1) * per_page + 1, last=min(page * per_page, total),
-            is_agency=is_agency, sort=sort,
+            is_agency=is_agency, sort=sort, discovery=discovery,
         )
 
     @app.get("/jobs/<int:job_id>")
@@ -360,6 +354,24 @@ def create_app(store: Path, config_path: Path) -> Flask:
             ats=request.form.get("ats", "").strip(),
         )
         return redirect(url_for("job", job_id=job_id, run=run.id))
+
+    @app.post("/discover")
+    def start_discovery():
+        """Re-read every board, in the background, so the page can watch."""
+        from . import runs
+
+        firms_path = Path(
+            config.get("search", {}).get("firms_path", "")
+            or Path(__file__).resolve().parents[2] / "firms.toml"
+        )
+        run = runs.start_discovery(
+            store,
+            config,
+            firms_path,
+            only=request.form.get("only", "").strip(),
+            ats=request.form.get("ats", "").strip(),
+        )
+        return redirect(url_for("jobs", run=run.id))
 
     @app.get("/runs/<run_id>.json")
     def run_status(run_id: str):

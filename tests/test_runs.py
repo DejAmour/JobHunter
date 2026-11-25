@@ -185,3 +185,65 @@ def test_the_job_page_offers_the_fill_controls(store, config_path):
     assert 'name="hold"' in body
     assert 'name="submit"' in body
     assert 'id="run-status"' in body
+
+
+def test_discovery_runs_in_the_background_and_keeps_its_log(store, tmp_path, monkeypatch):
+    from jobhunter import discover
+
+    firms = tmp_path / "firms.toml"
+    firms.write_text(
+        '[[firms]]\nname = "Acme"\nats = "greenhouse"\nslug = "acme"\n', encoding="utf-8"
+    )
+
+    def fake_run(config, registry, *, on_progress=None, **kwargs):
+        on_progress("  Acme: 5 listed, 2 match title, 2 in scope")
+        result = discover.Result(firm="Acme")
+        result.seen = 5
+        result.after_title = 2
+        result.kept = 2
+        result.stored = 2
+        return [result]
+
+    monkeypatch.setattr(discover, "run", fake_run)
+    run = runs.start_discovery(store, {}, firms)
+
+    assert wait_until(lambda: run.status == "done")
+    assert any("Acme: 5 listed" in line for line in run.lines)
+    assert run.message.startswith("2 new postings")
+
+
+def test_a_second_discovery_reuses_the_running_one(store, tmp_path, monkeypatch):
+    firms = tmp_path / "firms.toml"
+    firms.write_text('[[firms]]\nname = "Acme"\nats = "greenhouse"\nslug = "acme"\n', encoding="utf-8")
+    gate = threading.Event()
+
+    def worker(run, *args, **kwargs):
+        gate.wait(5)
+
+    monkeypatch.setattr(runs, "_discovery_worker", worker)
+    first = runs.start_discovery(store, {}, firms)
+    second = runs.start_discovery(store, {}, firms)
+    gate.set()
+    assert first.id == second.id
+
+
+def test_the_jobs_page_has_a_read_the_boards_button(store, config_path):
+    client = web.create_app(store, config_path).test_client()
+    body = client.get("/jobs").get_data(as_text=True)
+    assert "Read the boards now" in body
+    assert 'action="/discover"' in body
+
+
+def test_pressing_read_the_boards_starts_a_run(store, config_path, monkeypatch):
+    gate = threading.Event()
+
+    def worker(run, *args, **kwargs):
+        gate.wait(5)
+
+    monkeypatch.setattr(runs, "_discovery_worker", worker)
+    client = web.create_app(store, config_path).test_client()
+    response = client.post("/discover", data={})
+    gate.set()
+
+    assert response.status_code == 302
+    assert "run=" in response.headers["Location"]

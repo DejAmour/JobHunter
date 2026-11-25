@@ -69,16 +69,7 @@ def profile(config: dict) -> outreach.Profile:
 
 
 def candidate(config: dict) -> screening.Candidate:
-    block = config.get("candidate", {})
-    return screening.Candidate(
-        needs_sponsorship=bool(block.get("needs_sponsorship", False)),
-        salary_floor=int(block["salary_floor"]) if block.get("salary_floor") is not None else None,
-        currency=str(block.get("currency", "GBP")),
-        remote_only=bool(block.get("remote_only", False)),
-        years_experience=float(block["years_experience"]) if block.get("years_experience") is not None else None,
-        clearances=tuple(block.get("clearances", [])),
-        right_to_work=block.get("right_to_work"),
-    )
+    return screening.candidate_from(config)
 
 
 def read(path: str) -> str:

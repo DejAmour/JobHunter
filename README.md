@@ -423,6 +423,15 @@ Boards send both `2026-11-24` and `Posted 8 Days Ago`, so the sort converts the
 relative form against the discovery date — the page still shows the employer's
 own wording.
 
+**Read the boards now** re-runs discovery in the background and shows each
+board's line as it arrives ("67 listed, 14 match title, 3 new, 3 already known").
+The three numbers matter: *new* is what will appear in the list, *already known*
+is an advert that is still live but was stored before. A board reporting "0 in
+scope" is not the same as a board with nothing for you. The run writes to the
+same store as everything else, so the list is up to date the moment it finishes;
+a full pass over 32 boards takes about fifteen minutes and a few Workday tenants
+will answer 429 and be named in the log.
+
 <!-- CV BUILD NOTE -->
 
 ## The CV is generated

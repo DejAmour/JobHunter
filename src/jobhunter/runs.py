@@ -51,10 +51,19 @@ class Run:
     started: float = field(default_factory=time.time)
     finished: float | None = None
     release: threading.Event = field(default_factory=threading.Event, repr=False)
+    lines: list[str] = field(default_factory=list)
 
     @property
     def active(self) -> bool:
         return self.status in ("queued", "running", "waiting")
+
+    def log(self, text: str) -> None:
+        """One progress line, kept for the page that is watching."""
+        text = str(text).strip()
+        if not text:
+            return
+        self.lines.append(text)
+        del self.lines[:-400]
 
     def as_dict(self) -> dict:
         return {
@@ -78,6 +87,7 @@ class Run:
             "trace": self.trace,
             "submitted": self.submitted,
             "error": self.error,
+            "lines": self.lines[-200:],
             "elapsed": round((self.finished or time.time()) - self.started, 1),
         }
 
@@ -97,6 +107,14 @@ def active_for(job_id: int) -> Run | None:
             if run.job_id == job_id and run.active:
                 return run
     return None
+
+
+def active_discovery() -> Run | None:
+    with _LOCK:
+        return next(
+            (run for run in _RUNS.values() if run.kind == "discovery" and run.active),
+            None,
+        )
 
 
 def recent(limit: int = 20) -> list[Run]:
@@ -138,6 +156,105 @@ def start_fill(
     )
     thread.start()
     return run
+
+
+def start_discovery(
+    store: Path,
+    config: dict,
+    firms_path: Path,
+    *,
+    only: str = "",
+    ats: str = "",
+    max_detail: int = 25,
+) -> Run:
+    """Read the boards again, in the background, and keep the log.
+
+    Discovery is minutes long and mostly waiting on other people's servers, so a
+    request thread is the wrong place for it. One run at a time: two crawls of
+    the same boards is how a rate limit becomes a block.
+    """
+    with _LOCK:
+        running = next(
+            (run for run in _RUNS.values() if run.kind == "discovery" and run.active), None
+        )
+        if running is not None:
+            return running
+        run = Run(id=uuid.uuid4().hex[:10], job_id=0, kind="discovery")
+        _RUNS[run.id] = run
+
+    thread = threading.Thread(
+        target=_discovery_worker,
+        args=(run, store, config, Path(firms_path)),
+        kwargs={"only": only, "ats": ats, "max_detail": max_detail},
+        name="discovery",
+        daemon=True,
+    )
+    thread.start()
+    return run
+
+
+def _discovery_worker(
+    run: Run,
+    store: Path,
+    config: dict,
+    firms_path: Path,
+    *,
+    only: str = "",
+    ats: str = "",
+    max_detail: int = 25,
+) -> None:
+    import tomllib
+
+    from . import cv, discover, screening
+
+    try:
+        db.init(store)
+        if not firms_path.is_file():
+            raise FileNotFoundError(f"no firm registry at {firms_path}")
+        with firms_path.open("rb") as handle:
+            registry = tomllib.load(handle).get("firms", [])
+        if not registry:
+            raise ValueError(f"{firms_path} has no [[firms]] entries")
+
+        run.status = "running"
+        run.message = f"reading {len(registry)} employer boards"
+        run.log(run.message)
+
+        cv_path = config.get("profile", {}).get("cv", "")
+        cv_text = ""
+        if cv_path and Path(cv_path).is_file():
+            if Path(cv_path).suffix.lower() in {".pdf", ".docx"}:
+                cv_text = cv.extract(Path(cv_path))[0]
+            else:
+                cv_text = Path(cv_path).read_text(encoding="utf-8", errors="ignore")
+
+        results = discover.run(
+            config,
+            registry,
+            store=store,
+            cv_text=cv_text,
+            candidate=screening.candidate_from(config),
+            only=only,
+            only_ats=ats,
+            max_detail=max_detail,
+            verbose=False,
+            on_progress=run.log,
+        )
+
+        saved = sum(result.kept for result in results)
+        failed = [result for result in results if result.error]
+        run.log(discover.summary(results))
+        run.message = f"{saved} new posting{'s' if saved != 1 else ''} in scope"
+        if failed:
+            run.message += f"; {len(failed)} board{'s' if len(failed) != 1 else ''} failed"
+        run.status = "done"
+    except Exception as error:  # noqa: BLE001 - a crawl may not take the server down
+        run.status = "failed"
+        run.error = f"{type(error).__name__}: {error}"
+        run.message = run.error
+        run.log(run.error)
+    finally:
+        run.finished = time.time()
 
 
 def _fill_worker(run: Run, store: Path, config: dict, root: Path, **options) -> None:

@@ -192,6 +192,7 @@ class Result:
     after_title: int = 0
     after_location: int = 0
     kept: int = 0
+    known: int = 0
     stored: int = 0
     error: str = ""
     kept_titles: list[str] = field(default_factory=list)
@@ -257,9 +258,20 @@ def run(
     only_ats: str = "",
     max_detail: int = 25,
     verbose: bool = True,
+    on_progress=None,
 ) -> list[Result]:
     filters = Filters.from_config(config)
     results: list[Result] = []
+
+    def say(text: str, *, err: bool = False) -> None:
+        """One line of progress, to the terminal and (if asked) the dashboard."""
+        if verbose or on_progress is not None:
+            print(text, file=sys.stderr if err else sys.stdout)
+        if on_progress is not None:
+            try:
+                on_progress(text.strip())
+            except Exception:  # noqa: BLE001 - progress must never stop a run
+                pass
 
     selected = [
         f
@@ -283,6 +295,7 @@ def run(
         name = str(entry.get("name", "?"))
         result = Result(firm=name)
         results.append(result)
+        say(f"reading {name}")
 
         try:
             aggregated = dict(entry)
@@ -304,13 +317,11 @@ def run(
             postings = source.list()
         except sources.SourceError as error:
             result.error = str(error)
-            if verbose:
-                print(f"  ! {name}: {error}", file=sys.stderr)
+            say(f"  ! {name}: {error}", err=True)
             continue
         except Exception as error:  # a broken board must not stop the run
             result.error = f"{type(error).__name__}: {error}"
-            if verbose:
-                print(f"  ! {name}: {result.error}", file=sys.stderr)
+            say(f"  ! {name}: {result.error}", err=True)
             continue
 
         result.seen = len(postings)
@@ -335,12 +346,21 @@ def run(
             result.after_location += 1
             mark = fingerprint(posting.company or name, posting.title, posting.location)
             if mark in seen_fingerprints:
+                # Already stored from this or an earlier run: not new, but not a
+                # rejection either. Counting it as "0 in scope" made a board with
+                # three matching roles read like a board with none.
+                result.known += 1
                 continue
             kept.append((posting, country, mark))
 
         result.kept = len(kept)
-        if verbose:
-            print(f"  {name}: {result.seen} listed, {result.after_title} match title, {result.kept} in scope")
+        if result.known:
+            say(
+                f"  {name}: {result.seen} listed, {result.after_title} match title, "
+                f"{result.kept} new, {result.known} already known"
+            )
+        else:
+            say(f"  {name}: {result.seen} listed, {result.after_title} match title, {result.kept} in scope")
 
         details = 0
         connection = db.connect(store) if not dry_run else None
@@ -418,12 +438,15 @@ def summary(results: list[Result]) -> str:
     ok = [r for r in results if not r.error]
     failed = [r for r in results if r.error]
     stored = sum(r.stored for r in results)
+    known = sum(r.known for r in results)
     lines = [
         f"firms:   {len(results)} ({len(ok)} read, {len(failed)} failed)",
         f"listed:  {sum(r.seen for r in results)} postings",
-        f"in scope: {sum(r.kept for r in results)}",
+        f"in scope: {sum(r.kept for r in results)} new",
         f"saved:   {stored}",
     ]
+    if known:
+        lines.append(f"known:   {known} already in the store")
     if failed:
         lines.append("failed:  " + "; ".join(f"{r.firm} ({r.error[:60]})" for r in failed))
     return "\n".join(lines)
