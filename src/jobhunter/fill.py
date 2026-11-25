@@ -30,7 +30,7 @@ UA = (
 )
 
 ATS_HOSTS = (
-    ("greenhouse", ("greenhouse.io",)),
+    ("greenhouse", ("greenhouse.io", "grnh.se")),
     ("lever", ("lever.co",)),
     ("workday", ("myworkdayjobs.com", "workday.com")),
     ("smartrecruiters", ("smartrecruiters.com",)),
@@ -315,12 +315,13 @@ class Greenhouse(Ats):
         "location": "#candidate-location, #location",
         "linkedin": "#linkedin, input[name='urls[LinkedIn]']",
     }
-    SELECT = {"country": "#country"}
+    SELECT = {}
     FILE = {"resume": "#resume"}
 
     def fill_form(self, page, values: Values, ctx, report: FillReport) -> None:
         self._text(page, values, report)
         self._select(page, values, report)
+        self._country(page, values, report)
         self._file(page, values, report)
         if ctx is not None:
             fill_questions(
@@ -328,6 +329,10 @@ class Greenhouse(Ats):
                 ctx,
                 'input[id^="question_"], select[id^="question_"], textarea[id^="question_"]',
                 report,
+                # The current form marks its required fields with an asterisk in
+                # the label, not with the required attribute, so the page's own
+                # check cannot be trusted to name what is still blank.
+                report_unmatched=True,
             )
 
     def _text(self, page, values, report):
@@ -361,6 +366,29 @@ class Greenhouse(Ats):
                 report.filled.append(key)
             except Exception:  # noqa: BLE001
                 report.skipped.append(f"{key} (not in list)")
+
+    def _country(self, page, values, report):
+        """Country is a searchable combobox on the current form, a <select> on old ones."""
+        element = page.query_selector("#country")
+        if element is None:
+            return
+        if not values.country:
+            report.empty_answers.append("country")
+            return
+        if element.evaluate("(el) => el.tagName.toLowerCase()") == "select":
+            try:
+                element.select_option(label=values.country)
+                report.filled.append("country")
+            except Exception:  # noqa: BLE001
+                report.skipped.append("country (not in list)")
+            return
+        if (element.get_attribute("role") or "").lower() != "combobox":
+            return
+        chosen = _combo(page, element, values.country)
+        if chosen and values.country.lower() in chosen.lower():
+            report.filled.append("country")
+        else:
+            report.skipped.append(f"country (chose {chosen or 'nothing'})")
 
     def _file(self, page, values, report):
         data = values.as_dict()
@@ -2047,6 +2075,15 @@ def fill_questions(page, ctx, selector: str, report: FillReport, *, report_unmat
         try:
             if widget == "select":
                 _select_by_text(element, answer.value)
+            elif widget in ("text", "search") and (element.get_attribute("role") or "").lower() == "combobox":
+                chosen = _combo(page, element, answer.value)
+                if chosen and answer.value.lower() in chosen.lower():
+                    report.questions_answered.append((label, chosen))
+                else:
+                    report.questions_review.append(
+                        (label, f"no '{answer.value}' option (chose {chosen or 'nothing'})")
+                    )
+                continue
             elif widget == "checkbox" and _is_single_yes_no(page, element):
                 _tick(page, element, answer.value == "Yes")
             elif widget in ("radio", "checkbox"):
@@ -2104,6 +2141,80 @@ def _is_date_field(element) -> bool:
         or "input-date" in classes
         or placeholder.startswith("pick date")
     )
+
+
+def pick_option(offered: list[str], value: str) -> str:
+    """The label to choose from a dropdown's own options, or ''.
+
+    Exact first, then prefix: "United Kingdom" must not pick "United Kingdom
+    Overseas Territories" when both are offered, but it must pick "United
+    Kingdom +44" when the board decorates the label with a dial code.
+
+    Matching is on the *option text*, never on the typed string, so a miss
+    cannot pass for a hit (the earlier version compared "No" against the text
+    "no match for 'No'" and said yes).
+    """
+    wanted = (value or "").strip().lower()
+    if not wanted:
+        return ""
+    for option in offered:
+        if option.strip().lower() == wanted:
+            return option
+    for option in offered:
+        if option.strip().lower().startswith(wanted):
+            return option
+    return ""
+
+
+def _combo(page, element, value: str) -> str:
+    """Choose from a searchable dropdown that is not a ``<select>``.
+
+    Greenhouse's current form renders its country field and every dropdown
+    question as a react-select: an ``input[role=combobox]`` with a menu. Typing
+    filters it, Enter takes the highlighted option, and the chosen label is read
+    back from the control — so a miss is reported rather than assumed.
+    """
+    try:
+        element.scroll_into_view_if_needed(timeout=2_000)
+    except Exception:  # noqa: BLE001
+        pass
+    element.click()
+    try:
+        element.fill("")
+    except Exception:  # noqa: BLE001
+        pass
+    element.type(str(value), delay=25)
+    page.wait_for_timeout(700)
+
+    # Choose the option rather than hoping Enter picked the right one: read the
+    # menu, prefer an option whose label starts with the answer, and report the
+    # label that was actually taken.
+    offered = element.evaluate(
+        """
+        () => {
+          const clean = (t) => (t || '').replace(/\\s+/g, ' ').trim();
+          const menu = document.querySelector('[class*="select__menu"]');
+          if (!menu) return [];
+          return Array.from(menu.querySelectorAll('[role="option"]'))
+            .map((option) => clean(option.innerText))
+            .filter(Boolean)
+            .slice(0, 12);
+        }
+        """
+    )
+    match = pick_option(offered, value)
+    if match:
+        try:
+            page.keyboard.press("Enter")
+        except Exception:  # noqa: BLE001
+            pass
+        page.wait_for_timeout(300)
+        return match
+    try:
+        page.keyboard.press("Escape")
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
 
 
 def _select_by_text(element, value: str) -> None:
@@ -2223,6 +2334,13 @@ def required_still_empty(page) -> list[str]:
               const own = entry.querySelector('label');
               if (own && clean(own.innerText)) return clean(own.innerText);
             }
+            // react-select keeps a hidden state input next to the visible
+            // combobox; the question belongs to that combobox's label.
+            const shell = el.closest('[class*="select-shell"]');
+            if (shell) {
+              const combo = shell.querySelector('input[role="combobox"], input[id]');
+              if (combo && combo.labels && combo.labels.length) return clean(combo.labels[0].innerText);
+            }
             return el.labels && el.labels.length ? clean(el.labels[0].innerText) : (el.name || el.id);
           };
           const out = [];
@@ -2277,13 +2395,13 @@ def run(
     except ImportError:
         return FillReport(url=url, ats=ats, error="playwright is not installed")
 
+    from . import resolve as handoff
+
     kind = ats or detect_ats(url)
     #: why the URL changed, when it did: an aggregator's Apply link was followed
     handoff_note = ""
 
     if not kind:
-        from . import resolve as handoff
-
         if handoff.looks_like_aggregator(url):
             outcome = handoff.resolve(url, headless=headless, timeout_ms=timeout_ms)
             if outcome.closed:
@@ -2336,6 +2454,17 @@ def run(
                 )
 
     filler_class = FILLERS.get(kind)
+    if filler_class is None and not ats and url.startswith("http"):
+        # A short link (grnh.se, appcast, a tracking domain) hides the board.
+        # Follow it once, then look at where it landed rather than at the alias.
+        landed = handoff.landing(url, headless=headless, timeout_ms=timeout_ms)
+        landed_kind = detect_ats(landed)
+        if landed_kind in FILLERS:
+            url = landed
+            kind = landed_kind
+            filler_class = FILLERS[landed_kind]
+            handoff_note = f"followed a short link to {landed_kind}"
+
     if filler_class is None:
         return FillReport(
             url=url,

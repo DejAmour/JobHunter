@@ -289,6 +289,10 @@ RULES: tuple[tuple[re.Pattern[str], object], ...] = (
         lambda label, ctx: _from_bank(ctx, "worked_for_pwc", "no answer for the auditor question"),
     ),
     (
+        re.compile(r"require (?:a |any )?visa|need (?:a |any )?visa|visa to work", re.I),
+        _rule_sponsorship,
+    ),
+    (
         re.compile(r"(require|need).{0,30}sponsor|sponsorship", re.I),
         _rule_sponsorship,
     ),
@@ -343,6 +347,10 @@ RULES: tuple[tuple[re.Pattern[str], object], ...] = (
     (
         re.compile(r"current (?:job )?title|present position|job title", re.I),
         lambda label, ctx: _from_bank(ctx, "current_title", "no current title recorded"),
+    ),
+    (
+        re.compile(r"\b2[.:]1\b|first[- ]class|degree classification|degree result", re.I),
+        lambda label, ctx: Answer("", "review", "your degree result: answer this yourself"),
     ),
     (
         re.compile(r"universit|which (?:school|college)|institution", re.I),

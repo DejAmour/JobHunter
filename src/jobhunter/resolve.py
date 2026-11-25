@@ -172,6 +172,28 @@ def resolve(url: str, *, headless: bool = True, timeout_ms: int = 45_000, wait_m
     return outcome
 
 
+def landing(url: str, *, headless: bool = True, timeout_ms: int = 45_000) -> str:
+    """Where a URL ends up, without clicking anything.
+
+    Short links (``grnh.se``, appcast, tracking domains) hide which board they
+    belong to; the board is only visible after the redirect.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:  # pragma: no cover - environment dependent
+        return url
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=headless)
+            page = browser.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            final = page.url
+            browser.close()
+            return final
+    except Exception:  # noqa: BLE001 - a link we cannot follow is not an error here
+        return url
+
+
 def _apply_control(page):
     """The most likely hand-off control: a link before a button, first visible."""
     for selector in ("a", "button", "[role='button']", "input[type='submit']"):

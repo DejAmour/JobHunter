@@ -175,3 +175,19 @@ def test_yes_no_group_gets_the_matching_option(tmp_path):
     assert not any("United States" in question for question in answered)
     assert any("United States" in question for question, _ in report.questions_review)
     assert answered.get("Will you now or in the future require employer sponsorship? *") == "No"
+
+
+def test_a_visa_question_is_a_sponsorship_question():
+    answer = questions.answer_for("Do you require a visa for the country in which you are applying?", ctx())
+    assert answer is not None
+    assert answer.value == "No"
+    assert answer.confidence == "certain"
+
+
+def test_a_degree_classification_is_left_to_the_candidate():
+    answer = questions.answer_for(
+        "Do you have, or are you on track to achieve, a 2:1 degree classification or above?", ctx()
+    )
+    assert answer is not None
+    assert answer.value == ""
+    assert "your degree result" in answer.reason

@@ -145,3 +145,18 @@ def test_workday_sign_in_page_is_reported_not_filled():
     # The step detector is exercised on the fixture markup below; here we assert
     # the contract that a sign-in page ends the run with a clear message.
     assert "sign-in" in dict(fill.Workday.STEP_MARKERS)["sign-in"][0] or True
+
+
+def test_greenhouse_short_links_are_recognised():
+    """grnh.se is Greenhouse's alias; without it a real form looked like an
+    unsupported site and the run stopped before opening the browser."""
+    assert fill.detect_ats("https://grnh.se/z2932z82teu") == "greenhouse"
+
+
+def test_a_dropdown_option_is_chosen_by_its_own_label():
+    assert fill.pick_option(["United Kingdom +44"], "United Kingdom") == "United Kingdom +44"
+    assert fill.pick_option(["Yes", "No"], "No") == "No"
+    assert fill.pick_option([], "No") == ""
+    # A miss must stay a miss: "No" is not contained in "no match for 'No'"
+    # because matching is against the offered labels, never a message.
+    assert fill.pick_option(["Yes"], "No") == ""
