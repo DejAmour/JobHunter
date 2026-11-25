@@ -109,3 +109,40 @@ def test_a_followed_link_to_a_known_board_is_filled(monkeypatch):
     report = fill.run("https://www.adzuna.co.uk/jobs/details/1", fill.Values(), headless=True)
     assert "reached" in report.filled
     assert any("followed the listing" in note for note in report.notes)
+
+
+def test_a_board_that_keeps_the_application_on_its_own_page_is_named(monkeypatch):
+    """Reed's Apply button opens a Reed sign-in, not the employer's form.
+
+    The first version of this said "the application happens on www.reed.co.uk,
+    which has no filler yet", which reads like a missing adapter rather than a
+    board that never exposes a form.
+    """
+    url = "https://www.reed.co.uk/jobs/graduate-credit-risk-analyst/57520923"
+    monkeypatch.setattr(resolve, "looks_like_aggregator", lambda candidate: True)
+    monkeypatch.setattr(
+        resolve,
+        "resolve",
+        lambda candidate, **kwargs: resolve.Resolution(
+            url=url, final_url=url, note="the Apply control did not lead anywhere"
+        ),
+    )
+    report = fill.run(url, fill.Values(), headless=True)
+    assert report.error
+    assert "Reed runs applications behind a Reed account" in report.error
+    assert "no employer form" in report.error
+    assert "no filler" not in report.error
+
+
+def test_an_unlisted_board_still_says_which_host_it_is(monkeypatch):
+    url = "https://www.adzuna.co.uk/jobs/details/1"
+    monkeypatch.setattr(resolve, "looks_like_aggregator", lambda candidate: True)
+    monkeypatch.setattr(
+        resolve,
+        "resolve",
+        lambda candidate, **kwargs: resolve.Resolution(
+            url=url, final_url="https://careers.example.test/apply", note="followed"
+        ),
+    )
+    report = fill.run(url, fill.Values(), headless=True)
+    assert "careers.example.test" in report.error

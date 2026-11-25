@@ -27,14 +27,21 @@
     <option value="">employers and agencies</option>
     <option value="hide" {{ 'selected' if agency == 'hide' }}>direct employers only</option>
   </select>
+  <select name="sort">
+    <option value="" {{ 'selected' if not sort }}>best match</option>
+    <option value="newest" {{ 'selected' if sort == 'newest' }}>newest listed</option>
+    <option value="oldest" {{ 'selected' if sort == 'oldest' }}>oldest listed</option>
+    <option value="found" {{ 'selected' if sort == 'found' }}>recently found</option>
+    <option value="company" {{ 'selected' if sort == 'company' }}>company</option>
+  </select>
   <button type="submit">Filter</button>
-  {% if query or decision or country or senior or agency %}<a class="small" href="{{ url_for('jobs') }}">clear</a>{% endif %}
+  {% if query or decision or country or senior or agency or sort %}<a class="small" href="{{ url_for('jobs') }}">clear</a>{% endif %}
 </form>
 
 {% if jobs %}
 <table>
   <thead>
-    <tr><th>Role</th><th>Company</th><th>Where</th><th>Match</th><th>Decision</th></tr>
+    <tr><th>Role</th><th>Company</th><th>Where</th><th>Listed</th><th>Match</th><th>Decision</th></tr>
   </thead>
   <tbody>
   {% for row in jobs %}
@@ -47,6 +54,7 @@
       </td>
       <td class="small">{{ row['company'] | truncate(26, true) }}</td>
       <td class="small muted">{{ row['location'] | truncate(24, true) }}</td>
+      <td class="small muted">{{ row['posted_at'] or '—' }}</td>
       <td class="num small">
         {% if row['coverage'] is not none %}
           <span class="bar"><i style="width: {{ (row['coverage'] * 100) | round | int }}%"></i></span>
@@ -62,11 +70,11 @@
 {% if pages > 1 %}
 <div class="row" style="margin-top:16px">
   {% if page > 1 %}
-    <a class="small" href="{{ url_for('jobs', q=query, decision=decision, country=country, senior=senior, page=page-1) }}">Previous</a>
+    <a class="small" href="{{ url_for('jobs', q=query, decision=decision, country=country, senior=senior, agency=agency, sort=sort, page=page-1) }}">Previous</a>
   {% endif %}
   <span class="small faint">page {{ page }} of {{ pages }}</span>
   {% if page < pages %}
-    <a class="small" href="{{ url_for('jobs', q=query, decision=decision, country=country, senior=senior, page=page+1) }}">Next</a>
+    <a class="small" href="{{ url_for('jobs', q=query, decision=decision, country=country, senior=senior, agency=agency, sort=sort, page=page+1) }}">Next</a>
   {% endif %}
 </div>
 {% endif %}

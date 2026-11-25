@@ -58,6 +58,28 @@ class Resolution:
     def host(self) -> str:
         return urlsplit(self.final_url).netloc.lower()
 
+    @property
+    def moved(self) -> bool:
+        """Did the Apply control actually go somewhere else?"""
+        return bool(self.final_url) and self.final_url != self.url
+
+
+#: Boards whose Apply button opens their own account-gated application rather
+#: than the employer's form. Naming the reason is more useful than "no filler".
+ACCOUNT_BOARDS = {
+    "reed.co.uk": "Reed runs applications behind a Reed account",
+    "indeed.": "Indeed applies through an Indeed account",
+    "linkedin.com": "LinkedIn applies through your LinkedIn profile",
+    "totaljobs.com": "Totaljobs runs applications behind its own account",
+}
+
+
+def account_board_note(host: str) -> str:
+    for marker, note in ACCOUNT_BOARDS.items():
+        if marker in (host or ""):
+            return note
+    return ""
+
 
 def looks_like_aggregator(url: str) -> bool:
     lowered = (url or "").lower()

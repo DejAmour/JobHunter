@@ -20,6 +20,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from . import db
 
@@ -2299,6 +2300,25 @@ def run(
                 url = outcome.final_url
                 kind = detect_ats(url)
                 handoff_note = f"followed the listing's Apply link to {kind}"
+            elif outcome.final_url and not outcome.moved:
+                # The button did something in place (a modal, a sign-in) rather
+                # than handing off to a page with a form.
+                host = outcome.host or urlsplit(url).netloc.lower()
+                known = handoff.account_board_note(host)
+                detail = (
+                    known
+                    if known
+                    else f"{host or 'this site'} keeps the application on its own page"
+                )
+                return FillReport(
+                    url=url,
+                    ats="",
+                    error=(
+                        f"{detail}, so there is no employer form to fill from this link. "
+                        f"Apply on {host or 'the site'} itself, or find the role on the "
+                        "employer's own board."
+                    ),
+                )
             elif outcome.final_url:
                 return FillReport(
                     url=outcome.final_url,

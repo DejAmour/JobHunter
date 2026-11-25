@@ -416,6 +416,13 @@ Local only, bound to the loopback address, no accounts. It reads the same
 SQLite file the CLI writes, so anything discovered is visible immediately, and
 it is safe to leave running while a discovery run writes.
 
+The postings list sorts by **best match** by default, or by **newest listed**,
+**oldest listed**, **recently found** and **company**. "Listed" is the posting's
+own date; "found" is when discovery first saw it, and they are different facts.
+Boards send both `2026-11-24` and `Posted 8 Days Ago`, so the sort converts the
+relative form against the discovery date — the page still shows the employer's
+own wording.
+
 <!-- CV BUILD NOTE -->
 
 ## The CV is generated

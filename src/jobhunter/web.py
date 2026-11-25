@@ -81,6 +81,9 @@ def _connect(store: Path):
     connection = sqlite3.connect(store, timeout=30)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
+    # Sorting by "listed" needs a comparable date; the raw column keeps the
+    # board's own wording ("Posted 8 Days Ago"), so the conversion lives here.
+    connection.create_function("listed_date", 2, db.listed_date)
     try:
         yield connection
         connection.commit()
@@ -214,6 +217,7 @@ def create_app(store: Path, config_path: Path) -> Flask:
         query = request.args.get("q", "").strip()
         senior = request.args.get("senior", "")
         agency = request.args.get("agency", "")
+        sort = request.args.get("sort", "")
         page = max(1, int(request.args.get("page", 1) or 1))
         per_page = 75
 
@@ -234,10 +238,26 @@ def create_app(store: Path, config_path: Path) -> Flask:
             # Filtered in Python because the agency rule is a word list, not a column.
             pass
 
-        order = (
-            " ORDER BY CASE decision WHEN 'apply' THEN 0 WHEN 'ask' THEN 1 ELSE 2 END,"
-            " coverage DESC NULLS LAST, company, title"
-        )
+        # "Listed" is the posting's own date, which is what "newest" means to a
+        # person reading a job ad; "found" is when discovery first saw it. They
+        # differ: a role found today may have been listed three weeks ago.
+        ORDERS = {
+            "": (
+                " ORDER BY CASE decision WHEN 'apply' THEN 0 WHEN 'ask' THEN 1 ELSE 2 END,"
+                " coverage DESC NULLS LAST, company, title"
+            ),
+            "newest": (
+                " ORDER BY listed_date(posted_at, discovered_at) DESC NULLS LAST,"
+                " discovered_at DESC, id DESC"
+            ),
+            "oldest": (
+                " ORDER BY listed_date(posted_at, discovered_at) ASC NULLS LAST,"
+                " discovered_at ASC, id ASC"
+            ),
+            "found": " ORDER BY discovered_at DESC, id DESC",
+            "company": " ORDER BY company COLLATE NOCASE ASC, title COLLATE NOCASE ASC",
+        }
+        order = ORDERS.get(sort, ORDERS[""])
 
         with _connect(store) as connection:
             total = connection.execute(f"SELECT COUNT(1) n FROM jobs{where}", params).fetchone()["n"]
@@ -255,7 +275,7 @@ def create_app(store: Path, config_path: Path) -> Flask:
             "jobs.html", jobs=rows, decision=decision, country=country, query=query,
             senior=senior, agency=agency, applied=applied, page=page, pages=pages, total=total,
             first=(page - 1) * per_page + 1, last=min(page * per_page, total),
-            is_agency=is_agency,
+            is_agency=is_agency, sort=sort,
         )
 
     @app.get("/jobs/<int:job_id>")

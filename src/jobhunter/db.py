@@ -7,8 +7,9 @@ ledger is the only place a submission is proven.
 
 from __future__ import annotations
 
+import re
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 SCHEMA = """
@@ -123,6 +124,40 @@ LATER_COLUMNS = {
 
 def now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+_RELATIVE = re.compile(r"posted\s+(today|yesterday|(\d+)\+?\s+days?\s+ago)", re.I)
+
+
+def listed_date(posted_at: str | None, discovered_at: str | None) -> str | None:
+    """A comparable date for sorting, without changing what is displayed.
+
+    Boards speak two languages: Greenhouse sends ``2026-11-24`` and Workday sends
+    ``Posted 8 Days Ago``. Sorting the raw strings puts every "Posted ..." row
+    above every ISO date, which is the opposite of newest-first. The relative
+    form is anchored to when discovery saw the posting — the only clock this
+    store can trust - and the original wording is still what the page shows.
+
+    A posting with no date returns None rather than today: unknown is not new,
+    and NULL sorts last in both directions.
+    """
+    text = (posted_at or "").strip()
+    if not text:
+        return None
+    if re.match(r"^\d{4}-\d{2}-\d{2}", text):
+        return text[:10]
+    base = (discovered_at or "")[:10]
+    match = _RELATIVE.search(text)
+    if not match:
+        return None
+    days = {"today": 0, "yesterday": 1}.get((match.group(1) or "").lower())
+    if days is None:
+        days = int(match.group(2) or 0)
+    try:
+        anchor = datetime.fromisoformat(base).date()
+    except ValueError:
+        return None
+    return (anchor - timedelta(days=days)).isoformat()
 
 
 def connect(path: Path) -> sqlite3.Connection:
